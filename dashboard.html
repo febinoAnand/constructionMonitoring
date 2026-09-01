@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="hero-banner">
+        <h2 id="heroGreeting">Welcome back</h2>
+        <p id="heroSub">Here's how your construction projects are progressing today.</p>
+      </div>
+
+      <div class="module-strip" id="moduleStrip"></div>
+
+      <div class="stat-grid" id="statGrid"></div>
+
+      <div class="panel-grid">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Project Progress</h3>
+            <a href="projects.html">View all</a>
+          </div>
+          <div id="projectProgressList" class="activity-list"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Alerts</h3>
+            <span class="panel-tag" id="alertCount">0</span>
+          </div>
+          <div id="alertsList" class="activity-list"></div>
+        </div>
+      </div>
+
+      <div class="panel-grid charts-grid">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Cash Spent by Project</h3>
+          </div>
+          <div id="costChart"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Expense Breakdown</h3>
+          </div>
+          <div id="expenseChart"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  var currentUser = App.getCurrentUser();
+  App.renderShell({ active: "dashboard", title: "Dashboard", subtitle: "Overview of your projects" });
+
+  document.getElementById("heroGreeting").textContent = "Welcome back, " + currentUser.name.split(" ")[0] + " 👋";
+  document.getElementById("heroSub").textContent = currentUser.role === "admin"
+    ? "Here's how all your construction projects are progressing today."
+    : "Here's how your assigned project(s) are progressing today.";
+
+  var projects = App.visibleProjects();
+  var labourers = Data.getLabourers().filter(function (l) { return l.isActive; });
+  var alerts = Business.getLowStockAlerts().filter(function (a) { return App.canAccessProject(a.project.id); });
+  var totalWagesDue = 0;
+  projects.forEach(function (p) { totalWagesDue += Business.getWagesDueTotal(p.id); });
+  var totalSpent = 0;
+  projects.forEach(function (p) { totalSpent += Business.getProjectCost(p.id).totalCashSpent; });
+
+  /* ---------------- Module strip ---------------- */
+  var moduleStrip = document.getElementById("moduleStrip");
+  moduleStrip.innerHTML =
+    '<a class="module-card c1" href="projects.html">' +
+      '<span class="module-icon">' + App.svg("building") + '</span>' +
+      '<span class="module-info"><span class="module-label">Projects</span>' +
+        '<span class="module-value">' + projects.length + '</span>' +
+        '<span class="module-sub">' + projects.filter(function (p) { return p.status === "active"; }).length + ' active</span></span>' +
+      '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
+    '</a>' +
+    '<a class="module-card c2" href="labour-list.html">' +
+      '<span class="module-icon">' + App.svg("people") + '</span>' +
+      '<span class="module-info"><span class="module-label">Labourers</span>' +
+        '<span class="module-value">' + labourers.length + '</span>' +
+        '<span class="module-sub">Active workforce</span></span>' +
+      '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
+    '</a>' +
+    '<a class="module-card c3" href="materials.html">' +
+      '<span class="module-icon">' + App.svg("box") + '</span>' +
+      '<span class="module-info"><span class="module-label">Materials</span>' +
+        '<span class="module-value">' + Data.getMaterials().length + '</span>' +
+        '<span class="module-sub">' + alerts.length + ' low-stock alert(s)</span></span>' +
+      '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
+    '</a>';
+
+  /* ---------------- Stat grid ---------------- */
+  var statGrid = document.getElementById("statGrid");
+  function statCard(icon, iconCls, value, label) {
+    return '<div class="stat-card"><div class="stat-icon ' + iconCls + '">' + App.svg(icon) + '</div>' +
+      '<div class="stat-value">' + value + '</div><div class="stat-label">' + label + '</div></div>';
+  }
+  statGrid.innerHTML =
+    statCard("building", "icon-amber", projects.length, "Projects visible to you") +
+    statCard("coins", "icon-orange", "₹" + Charts.fmtCompact(totalWagesDue), "Total wages due") +
+    statCard("alert", "icon-blue", alerts.length, "Low-stock alerts") +
+    statCard("wallet", "icon-slate", "₹" + Charts.fmtCompact(totalSpent), "Total cash spent");
+
+  /* ---------------- Project progress list ---------------- */
+  var progressListEl = document.getElementById("projectProgressList");
+  if (!projects.length) {
+    progressListEl.innerHTML = '<div class="empty-state compact">' + App.svg("building") + '<p>No projects assigned to you yet.</p></div>';
+  } else {
+    progressListEl.innerHTML = projects.map(function (p) {
+      var est = Business.estimateCompletion(p);
+      var pct = est.percentComplete;
+      return '<div class="activity-item">' +
+        '<div class="activity-dot"></div>' +
+        '<div style="flex:1">' +
+          '<p><a href="project-overview.html?id=' + p.id + '"><strong>' + p.name + '</strong></a> — ' + pct + '% complete' +
+          (est.atRisk ? ' <span class="badge badge-danger">At risk</span>' : '') + '</p>' +
+          '<span>' + p.code + ' · Target: ' + Data.displayDate(p.targetEndDate) + '</span>' +
+        '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  /* ---------------- Alerts ---------------- */
+  var alertsListEl = document.getElementById("alertsList");
+  document.getElementById("alertCount").textContent = alerts.length;
+  if (!alerts.length) {
+    alertsListEl.innerHTML = '<div class="empty-state compact">' + App.svg("check") + '<p>No alerts. Everything looks fine.</p></div>';
+  } else {
+    alertsListEl.innerHTML = alerts.slice(0, 6).map(function (a) {
+      return '<div class="activity-item">' +
+        '<div class="activity-dot" style="background:var(--danger)"></div>' +
+        '<div>' +
+          '<p><strong>' + a.material.name + '</strong> is low on ' + a.project.name + '</p>' +
+          '<span>Balance: ' + a.balance + ' ' + a.material.unit + ' (below reorder threshold)</span>' +
+        '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  /* ---------------- Charts ---------------- */
+  Charts.renderBarChart(document.getElementById("costChart"), projects.map(function (p) {
+    return { label: p.code, value: Business.getProjectCost(p.id).totalCashSpent };
+  }), { formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
+
+  var expenseTotals = {};
+  projects.forEach(function (p) {
+    Data.getExpenses().filter(function (e) { return e.projectId === p.id; }).forEach(function (e) {
+      expenseTotals[e.category] = (expenseTotals[e.category] || 0) + e.amount;
+    });
+  });
+  var categoryLabels = { transport: "Transport", equipment_rental: "Equipment", permits_fees: "Permits & Fees", utilities: "Utilities", misc: "Miscellaneous" };
+  Charts.renderDonutChart(document.getElementById("expenseChart"), Object.keys(expenseTotals).map(function (k) {
+    return { label: categoryLabels[k] || k, value: expenseTotals[k] };
+  }), { centerLabel: "Expenses", formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
+</script>
+</body>
+</html>

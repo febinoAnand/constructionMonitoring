@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Projects</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Projects</h2>
+          <p>All construction sites you manage or are assigned to.</p>
+        </div>
+        <button class="btn btn-primary" id="addProjectBtn" data-admin-only>+ New Project</button>
+      </div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="searchInput" placeholder="Search projects...">
+          </div>
+          <span class="toolbar-meta" id="toolbarMeta"></span>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Project</th><th>Client</th><th>Status</th><th>Progress</th><th>Target End</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Add/Edit modal -->
+<div class="modal-overlay" id="projectModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3 id="modalTitle">New Project</h3><p>Fill in the project details below.</p></div>
+      <button class="modal-close" id="closeModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="projectForm">
+        <input type="hidden" id="editId">
+        <div class="field-grid">
+          <div class="field full"><label>Project Name <span class="req">*</span></label><input type="text" id="fName" required></div>
+          <div class="field"><label>Project Code <span class="req">*</span></label><input type="text" id="fCode" required></div>
+          <div class="field"><label>Status</label>
+            <select id="fStatus">
+              <option value="planning">Planning</option>
+              <option value="active">Active</option>
+              <option value="on_hold">On Hold</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div class="field full"><label>Client Name</label><input type="text" id="fClient"></div>
+          <div class="field full"><label>Address</label><input type="text" id="fAddress"></div>
+          <div class="field"><label>Start Date</label><input type="date" id="fStart"></div>
+          <div class="field"><label>Target End Date</label><input type="date" id="fEnd"></div>
+          <div class="field full"><label>Budget (₹)</label><input type="number" id="fBudget" min="0"></div>
+          <div class="field full"><label>Description</label><textarea id="fDesc"></textarea></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelModal">Cancel</button>
+      <button class="btn btn-primary" id="saveProject">Save Project</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  App.renderShell({ active: "projects", title: "Projects", subtitle: "All construction sites" });
+
+  var isAdmin = App.isAdmin();
+  var searchTerm = "";
+
+  function statusLabel(s) {
+    return { planning: "Planning", active: "Active", on_hold: "On Hold", completed: "Completed", cancelled: "Cancelled" }[s] || s;
+  }
+  function statusPillClass(s) {
+    return { planning: "pending", active: "active", on_hold: "pending", completed: "delivered", cancelled: "inactive" }[s] || "pending";
+  }
+
+  function render() {
+    var projects = App.visibleProjects().filter(function (p) {
+      var t = searchTerm.toLowerCase();
+      return !t || p.name.toLowerCase().indexOf(t) !== -1 || p.code.toLowerCase().indexOf(t) !== -1 || (p.clientName || "").toLowerCase().indexOf(t) !== -1;
+    });
+
+    document.getElementById("toolbarMeta").textContent = projects.length + " project(s)";
+
+    var tbody = document.getElementById("tableBody");
+    if (!projects.length) {
+      tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("building") + '<p>No projects found.</p></div></td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = projects.map(function (p) {
+      var est = Business.estimateCompletion(p);
+      return '<tr>' +
+        '<td><a href="project-overview.html?id=' + p.id + '"><strong>' + p.name + '</strong></a><br><span class="cell-mono">' + p.code + '</span></td>' +
+        '<td>' + (p.clientName || "—") + '</td>' +
+        '<td><span class="status-pill ' + statusPillClass(p.status) + '">' + statusLabel(p.status) + '</span></td>' +
+        '<td>' + est.percentComplete + '%' + (est.atRisk ? ' <span class="badge badge-danger">At risk</span>' : '') + '</td>' +
+        '<td>' + Data.displayDate(p.targetEndDate) + '</td>' +
+        '<td>' +
+          '<div class="row-actions">' +
+            '<button class="action-trigger" data-menu-toggle="' + p.id + '">' + App.svg("dots") + '</button>' +
+            '<div class="action-menu" data-menu="' + p.id + '">' +
+              '<button data-view="' + p.id + '">' + App.svg("arrowRight") + ' Open</button>' +
+              (isAdmin ? '<button data-edit="' + p.id + '">' + App.svg("edit") + ' Edit</button>' +
+                '<button class="danger" data-delete="' + p.id + '">' + App.svg("trash") + ' Delete</button>' : '') +
+            '</div>' +
+          '</div>' +
+        '</td>' +
+      '</tr>';
+    }).join("");
+  }
+
+  document.getElementById("searchInput").addEventListener("input", function (e) {
+    searchTerm = e.target.value;
+    render();
+  });
+
+  var openMenuId = null;
+  document.addEventListener("click", function (e) {
+    var toggle = e.target.closest("[data-menu-toggle]");
+    document.querySelectorAll(".action-menu.show").forEach(function (m) { m.classList.remove("show"); });
+    if (toggle) {
+      var id = toggle.getAttribute("data-menu-toggle");
+      openMenuId = id;
+      App.positionActionMenu(id);
+      document.querySelector('[data-menu="' + id + '"]').classList.add("show");
+      return;
+    }
+    var view = e.target.closest("[data-view]");
+    if (view) { window.location.href = "project-overview.html?id=" + view.getAttribute("data-view"); return; }
+    var edit = e.target.closest("[data-edit]");
+    if (edit) { openModal(edit.getAttribute("data-edit")); return; }
+    var del = e.target.closest("[data-delete]");
+    if (del) { deleteProject(del.getAttribute("data-delete")); return; }
+  });
+  window.addEventListener("scroll", function () { if (openMenuId) App.positionActionMenu(openMenuId); }, true);
+
+  function deleteProject(id) {
+    if (!confirm("Delete this project and keep its historical records? This only removes the project entry itself.")) return;
+    Data.saveProjects(Data.getProjects().filter(function (p) { return p.id !== id; }));
+    App.showToast("Project deleted");
+    render();
+  }
+
+  var modal = document.getElementById("projectModal");
+  function openModal(id) {
+    document.getElementById("projectForm").reset();
+    document.getElementById("editId").value = id || "";
+    if (id) {
+      var p = Data.getProjects().find(function (x) { return x.id === id; });
+      document.getElementById("modalTitle").textContent = "Edit Project";
+      document.getElementById("fName").value = p.name;
+      document.getElementById("fCode").value = p.code;
+      document.getElementById("fStatus").value = p.status;
+      document.getElementById("fClient").value = p.clientName || "";
+      document.getElementById("fAddress").value = p.address || "";
+      document.getElementById("fStart").value = p.startDate || "";
+      document.getElementById("fEnd").value = p.targetEndDate || "";
+      document.getElementById("fBudget").value = p.budget || "";
+      document.getElementById("fDesc").value = p.description || "";
+    } else {
+      document.getElementById("modalTitle").textContent = "New Project";
+      document.getElementById("fStart").value = Data.isoDate(Data.today());
+    }
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+
+  document.getElementById("addProjectBtn").addEventListener("click", function () { openModal(null); });
+  document.getElementById("closeModal").addEventListener("click", closeModal);
+  document.getElementById("cancelModal").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById("saveProject").addEventListener("click", function () {
+    var name = document.getElementById("fName").value.trim();
+    var code = document.getElementById("fCode").value.trim();
+    if (!name || !code) { App.showToast("Project name and code are required", true); return; }
+
+    var id = document.getElementById("editId").value;
+    var projects = Data.getProjects();
+
+    var record = {
+      id: id || Data.uid("p"),
+      name: name,
+      code: code,
+      status: document.getElementById("fStatus").value,
+      clientName: document.getElementById("fClient").value.trim(),
+      address: document.getElementById("fAddress").value.trim(),
+      startDate: document.getElementById("fStart").value,
+      targetEndDate: document.getElementById("fEnd").value,
+      budget: Number(document.getElementById("fBudget").value) || 0,
+      description: document.getElementById("fDesc").value.trim()
+    };
+
+    if (id) {
+      projects = projects.map(function (p) { return p.id === id ? record : p; });
+    } else {
+      projects.push(record);
+    }
+    Data.saveProjects(projects);
+    App.showToast(id ? "Project updated" : "Project created");
+    closeModal();
+    render();
+  });
+
+  render();
+</script>
+</body>
+</html>
