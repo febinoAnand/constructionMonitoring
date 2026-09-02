@@ -544,6 +544,7 @@ h1, h2, h3,
   border-radius: var(--radius);
   padding: 22px;
   box-shadow: var(--shadow-sm);
+  min-width: 0;
 }
 
 .panel-header {
@@ -2040,12 +2041,16 @@ h1, h2, h3,
 
 .donut-wrap {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 24px;
   padding: 6px 4px 0;
 }
 
 .donut-wrap svg { flex-shrink: 0; }
+
+.donut-legend { min-width: 180px; }
 
 .donut-center-value {
   font-size: 22px;
