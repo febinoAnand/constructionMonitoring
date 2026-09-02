@@ -56,11 +56,13 @@
     return { balance: balance, isLowStock: isLowStock, txns: txns };
   }
 
+  /* Only considers materials the project has actually transacted at least once —
+     a material the project has never ordered isn't "low stock", it just hasn't started. */
   function getAllStockBalances(projectId) {
     var materials = window.Data.getMaterials();
     return materials.map(function (m) {
       var b = getStockBalance(projectId, m.id);
-      return { material: m, balance: b.balance, isLowStock: b.isLowStock };
+      return { material: m, balance: b.balance, isLowStock: b.isLowStock && b.txns.length > 0, hasActivity: b.txns.length > 0 };
     });
   }
 
@@ -144,6 +146,15 @@
     return alerts;
   }
 
+  /* Balance due FROM the customer = Σ invoices − Σ receipts. The mirror image
+     of getProjectCost, which tracks money the company spends. */
+  function getCustomerLedger(customerId) {
+    var entries = window.Data.getCustomerLedger().filter(function (e) { return e.customerId === customerId; });
+    var invoiced = entries.filter(function (e) { return e.type === "invoice"; }).reduce(function (s, e) { return s + e.amount; }, 0);
+    var received = entries.filter(function (e) { return e.type === "receipt"; }).reduce(function (s, e) { return s + e.amount; }, 0);
+    return { invoiced: invoiced, received: received, balanceDue: invoiced - received, entries: entries };
+  }
+
   function getWagesDueTotal(projectId) {
     var labourers = window.Data.getLabourers();
     var total = 0;
@@ -160,6 +171,7 @@
     getProjectCost: getProjectCost,
     estimateCompletion: estimateCompletion,
     getLowStockAlerts: getLowStockAlerts,
-    getWagesDueTotal: getWagesDueTotal
+    getWagesDueTotal: getWagesDueTotal,
+    getCustomerLedger: getCustomerLedger
   };
 })();

@@ -7,8 +7,9 @@
 (function () {
   "use strict";
 
-  var USERS_KEY = "cui_users_v1";
-  var PROJECTS_KEY = "cui_projects_v1";
+  var USERS_KEY = "cui_users_v2";
+  var ROLES_KEY = "cui_roles_v1";
+  var PROJECTS_KEY = "cui_projects_v2";
   var LABOURERS_KEY = "cui_labourers_v1";
   var ATTENDANCE_KEY = "cui_attendance_v1";
   var WAGE_PAYMENTS_KEY = "cui_wage_payments_v1";
@@ -17,6 +18,9 @@
   var EXPENSES_KEY = "cui_expenses_v1";
   var WORK_REPORTS_KEY = "cui_work_reports_v1";
   var PROGRESS_KEY = "cui_progress_v1";
+  var TASKS_KEY = "cui_tasks_v1";
+  var CUSTOMERS_KEY = "cui_customers_v1";
+  var CUSTOMER_LEDGER_KEY = "cui_customer_ledger_v1";
 
   function uid(prefix) {
     return (prefix || "id") + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -66,14 +70,63 @@
     };
   }
 
+  /* ---------------- Roles & permissions ----------------
+     Each role carries per-module CRUD permissions plus an
+     `allProjects` flag (sees every project vs. only assigned
+     ones). Admin can add/edit roles from roles.html — these
+     three are just the starting seed, not hardcoded specials. */
+
+  var PERMISSION_MODULES = [
+    { key: "projects", label: "Projects" },
+    { key: "labour", label: "Labour & Attendance" },
+    { key: "stock", label: "Stock & Materials" },
+    { key: "expenses", label: "Expenses" },
+    { key: "reports", label: "Work Reports" },
+    { key: "progress", label: "Progress & Tasks" },
+    { key: "customers", label: "Customers" },
+    { key: "users", label: "Users" },
+    { key: "roles", label: "Roles & Permissions" }
+  ];
+
+  function fullPerms(v) {
+    var p = {};
+    PERMISSION_MODULES.forEach(function (m) { p[m.key] = { create: v, read: v, update: v, delete: v }; });
+    return p;
+  }
+
+  function buildSeedRoles() {
+    var supervisorPerms = fullPerms(false);
+    ["labour", "stock", "expenses", "reports", "progress"].forEach(function (k) {
+      supervisorPerms[k] = { create: true, read: true, update: true, delete: false };
+    });
+    supervisorPerms.projects = { create: false, read: true, update: false, delete: false };
+    supervisorPerms.customers = { create: false, read: true, update: false, delete: false };
+
+    var accountantPerms = fullPerms(false);
+    ["projects", "labour", "stock", "reports", "progress"].forEach(function (k) {
+      accountantPerms[k] = { create: false, read: true, update: false, delete: false };
+    });
+    accountantPerms.expenses = { create: true, read: true, update: true, delete: true };
+    accountantPerms.customers = { create: true, read: true, update: true, delete: true };
+
+    return [
+      { id: "r_admin", name: "Administrator", description: "Full access to every project and module.", allProjects: true, isSystem: true, permissions: fullPerms(true) },
+      { id: "r_supervisor", name: "Site Supervisor", description: "Manages day-to-day data entry for their assigned project(s).", allProjects: false, isSystem: true, permissions: supervisorPerms },
+      { id: "r_accountant", name: "Accountant", description: "Read-only across sites, full control of expenses and customer billing.", allProjects: true, isSystem: false, permissions: accountantPerms }
+    ];
+  }
+
+  var rolesStore = makeStore(ROLES_KEY, buildSeedRoles);
+
   /* ---------------- Users (demo login directory) ---------------- */
 
   function buildSeedUsers() {
     return [
-      { id: "u1", name: "Vijay Kumar", role: "admin", phone: "9840012345", assignedProjectIds: [] },
-      { id: "u2", name: "Ramesh Babu", role: "supervisor", phone: "9840023456", assignedProjectIds: ["p1"] },
-      { id: "u3", name: "Suresh Raj", role: "supervisor", phone: "9840034567", assignedProjectIds: ["p2"] },
-      { id: "u4", name: "Anitha Selvam", role: "supervisor", phone: "9840045678", assignedProjectIds: ["p1", "p3"] }
+      { id: "u1", name: "Vijay Kumar", roleId: "r_admin", phone: "9840012345", assignedProjectIds: [] },
+      { id: "u2", name: "Ramesh Babu", roleId: "r_supervisor", phone: "9840023456", assignedProjectIds: ["p1"] },
+      { id: "u3", name: "Suresh Raj", roleId: "r_supervisor", phone: "9840034567", assignedProjectIds: ["p2"] },
+      { id: "u4", name: "Anitha Selvam", roleId: "r_supervisor", phone: "9840045678", assignedProjectIds: ["p1", "p3"] },
+      { id: "u5", name: "Priya Sundaram", roleId: "r_accountant", phone: "9840056789", assignedProjectIds: [] }
     ];
   }
 
@@ -90,6 +143,7 @@
         code: "PRJ-101",
         address: "Plot 14, Anna Nagar West, Chennai",
         clientName: "Skyline Builders Pvt Ltd",
+        customerId: "c1",
         startDate: isoDate(addDays(t, -140)),
         targetEndDate: isoDate(addDays(t, 70)),
         status: "active",
@@ -102,6 +156,7 @@
         code: "PRJ-102",
         address: "Survey 22/3, Perungudi, Chennai",
         clientName: "Green Valley Developers",
+        customerId: "c2",
         startDate: isoDate(addDays(t, -60)),
         targetEndDate: isoDate(addDays(t, 160)),
         status: "active",
@@ -114,6 +169,7 @@
         code: "PRJ-103",
         address: "NH-45 Service Road, Tambaram",
         clientName: "Riverside Ventures LLP",
+        customerId: "c3",
         startDate: isoDate(addDays(t, -20)),
         targetEndDate: isoDate(addDays(t, 260)),
         status: "planning",
@@ -124,6 +180,56 @@
   }
 
   var projectsStore = makeStore(PROJECTS_KEY, buildSeedProjects);
+
+  /* ---------------- Customers (clients) ---------------- */
+
+  function buildSeedCustomers() {
+    return [
+      {
+        id: "c1", name: "Skyline Builders Pvt Ltd", contactPerson: "Arvind Menon",
+        phone: "9884011223", email: "arvind@skylinebuilders.in", address: "12 Greenways Road, Chennai",
+        gstin: "33AABCS1234F1Z5", notes: "Repeat client — 3rd project with us."
+      },
+      {
+        id: "c2", name: "Green Valley Developers", contactPerson: "Meena Krishnan",
+        phone: "9884022334", email: "meena@greenvalleydev.in", address: "45 OMR Road, Perungudi, Chennai",
+        gstin: "33AACCG5678K1Z2", notes: ""
+      },
+      {
+        id: "c3", name: "Riverside Ventures LLP", contactPerson: "Karthik Subramaniam",
+        phone: "9884033445", email: "karthik@riversideventures.in", address: "8 NH-45 Service Road, Tambaram",
+        gstin: "33AAECR9012L1Z8", notes: "New client, first project."
+      }
+    ];
+  }
+
+  var customersStore = makeStore(CUSTOMERS_KEY, buildSeedCustomers);
+
+  /* ---------------- Customer ledger (money owed BY the customer) ----------------
+     type "invoice" increases what the customer owes; "receipt" is a payment
+     received from the customer that reduces it. Balance due = Σ invoice − Σ receipt. */
+
+  function buildSeedCustomerLedger() {
+    var t = today();
+    var entries = [];
+    var config = {
+      c1: { projectId: "p1", invoices: [[-125, 4200000], [-70, 3800000], [-25, 3000000]], receipts: [[-118, 4200000], [-60, 3000000]] },
+      c2: { projectId: "p2", invoices: [[-55, 5000000], [-10, 3200000]], receipts: [[-48, 5000000]] },
+      c3: { projectId: "p3", invoices: [[-15, 2000000]], receipts: [] }
+    };
+    Object.keys(config).forEach(function (cid) {
+      var cfg = config[cid];
+      cfg.invoices.forEach(function (pair, i) {
+        entries.push({ id: "cl_" + cid + "_inv" + i, customerId: cid, projectId: cfg.projectId, type: "invoice", amount: pair[1], date: isoDate(addDays(t, pair[0])), description: "Milestone billing", invoiceNumber: "INV-" + (7000 + i * 3 + cid.length) });
+      });
+      cfg.receipts.forEach(function (pair, i) {
+        entries.push({ id: "cl_" + cid + "_rcpt" + i, customerId: cid, projectId: cfg.projectId, type: "receipt", amount: pair[1], date: isoDate(addDays(t, pair[0])), description: "Payment received", invoiceNumber: "" });
+      });
+    });
+    return entries;
+  }
+
+  var customerLedgerStore = makeStore(CUSTOMER_LEDGER_KEY, buildSeedCustomerLedger);
 
   /* ---------------- Labourers (global master) ---------------- */
 
@@ -404,6 +510,42 @@
 
   var progressStore = makeStore(PROGRESS_KEY, buildSeedProgress);
 
+  /* ---------------- Tasks (Kanban board — today's work items) ---------------- */
+
+  var TASK_STATUSES = ["todo", "in_progress", "done"];
+  var TASK_TITLES = [
+    "Shift cement bags to 3rd floor", "Fix formwork for beam casting", "Level the flooring in unit 4B",
+    "Install electrical conduits", "Clear debris from site entrance", "Plaster east wing wall",
+    "Check plumbing joints for leaks", "Paint primer coat on ground floor", "Deliver TMT steel to site",
+    "Inspect scaffolding safety", "Lay tiles in lobby area", "Waterproof terrace slab"
+  ];
+
+  function buildSeedTasks() {
+    var t = today();
+    var tasks = [];
+    var projects = ["p1", "p2", "p3"];
+    var labourers = buildSeedLabourers().slice(0, 6).map(function (l) { return l.name; });
+    projects.forEach(function (pid, pIdx) {
+      var count = pid === "p3" ? 4 : 7;
+      for (var i = 0; i < count; i++) {
+        var status = TASK_STATUSES[(pIdx + i) % 3];
+        var dayOffset = -((pIdx + i) % 3);
+        tasks.push({
+          id: "tk_" + pid + "_" + i,
+          projectId: pid,
+          title: TASK_TITLES[(pIdx * 4 + i) % TASK_TITLES.length],
+          assignee: labourers[(pIdx + i) % labourers.length],
+          status: status,
+          date: isoDate(addDays(t, dayOffset)),
+          notes: ""
+        });
+      }
+    });
+    return tasks;
+  }
+
+  var tasksStore = makeStore(TASKS_KEY, buildSeedTasks);
+
   /* ---------------- Cross-entity helpers ---------------- */
 
   function addAttendance(record) {
@@ -433,6 +575,10 @@
     today: today,
 
     getUsers: usersStore.get, saveUsers: usersStore.save,
+    getRoles: rolesStore.get, saveRoles: rolesStore.save,
+    getCustomers: customersStore.get, saveCustomers: customersStore.save,
+    getCustomerLedger: customerLedgerStore.get, saveCustomerLedger: customerLedgerStore.save,
+    getTasks: tasksStore.get, saveTasks: tasksStore.save,
     getProjects: projectsStore.get, saveProjects: projectsStore.save,
     getLabourers: labourersStore.get, saveLabourers: labourersStore.save,
     getAttendance: attendanceStore.get, saveAttendance: attendanceStore.save,
@@ -445,6 +591,9 @@
     getProgressUpdates: progressStore.get, saveProgressUpdates: progressStore.save,
 
     SKILLS: SKILLS,
-    EXPENSE_CATEGORIES: EXPENSE_CATEGORIES
+    EXPENSE_CATEGORIES: EXPENSE_CATEGORIES,
+    PERMISSION_MODULES: PERMISSION_MODULES,
+    TASK_STATUSES: TASK_STATUSES,
+    fullPerms: fullPerms
   };
 })();

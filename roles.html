@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roles & Permissions</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Roles &amp; Permissions</h2>
+          <p>Define what each role can see and do — assign users to roles from the Users page.</p>
+        </div>
+        <button class="btn btn-primary" id="addRoleBtn">+ New Role</button>
+      </div>
+
+      <div id="roleList"></div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="roleModal">
+  <div class="modal-box wide">
+    <div class="modal-header">
+      <div><h3 id="modalTitle">New Role</h3><p>Toggle Create / Read / Update / Delete per module.</p></div>
+      <button class="modal-close" id="closeModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="roleForm">
+        <input type="hidden" id="editId">
+        <div class="field-grid" style="margin-bottom:20px">
+          <div class="field"><label>Role Name <span class="req">*</span></label><input type="text" id="fName" required></div>
+          <div class="field">
+            <label>Project Visibility</label>
+            <div class="status-toggle-group">
+              <label data-state="active"><input type="radio" name="fAllProjects" value="true"><span>Sees all projects</span></label>
+              <label data-state="inactive"><input type="radio" name="fAllProjects" value="false" checked><span>Assigned projects only</span></label>
+            </div>
+          </div>
+          <div class="field full"><label>Description</label><input type="text" id="fDesc"></div>
+        </div>
+
+        <div class="perm-table">
+          <div class="perm-head-row">
+            <div></div>
+            <div class="perm-col-label">Create</div>
+            <div class="perm-col-label">Read</div>
+            <div class="perm-col-label">Update</div>
+            <div class="perm-col-label">Delete</div>
+          </div>
+          <div id="permRows"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelModal">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save Role</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  App.renderShell({ active: "roles", title: "Roles & Permissions", subtitle: "Access control" });
+
+  if (!App.guardPermission("roles", "read")) {
+    document.querySelector(".content").style.display = "none";
+  } else {
+    var canManage = App.can("roles", "update") || App.can("roles", "create");
+    if (!canManage) document.getElementById("addRoleBtn").style.display = "none";
+
+    var actions = ["create", "read", "update", "delete"];
+
+    function renderPermRows(permissions) {
+      document.getElementById("permRows").innerHTML = Data.PERMISSION_MODULES.map(function (m) {
+        var p = (permissions && permissions[m.key]) || { create: false, read: false, update: false, delete: false };
+        return '<div class="perm-row">' +
+          '<div class="perm-module-name">' + m.label + '</div>' +
+          actions.map(function (a) {
+            return '<div class="perm-switch-cell"><label class="perm-switch">' +
+              '<input type="checkbox" data-mod="' + m.key + '" data-action="' + a + '" ' + (p[a] ? "checked" : "") + '>' +
+              '<span class="slider"></span></label></div>';
+          }).join("") +
+        '</div>';
+      }).join("");
+    }
+
+    function renderList() {
+      var roles = Data.getRoles();
+      var users = Data.getUsers();
+      document.getElementById("roleList").innerHTML = roles.map(function (r) {
+        var userCount = users.filter(function (u) { return u.roleId === r.id; }).length;
+        var modSummary = Data.PERMISSION_MODULES.filter(function (m) {
+          var p = r.permissions[m.key];
+          return p && (p.create || p.read || p.update || p.delete);
+        }).map(function (m) { return '<span class="chip chip-amber">' + m.label + '</span>'; }).join(" ");
+
+        return '<div class="role-card">' +
+          '<div class="role-card-header">' +
+            '<div><h3>' + r.name + (r.allProjects ? ' <span class="badge badge-info" style="vertical-align:middle">All Projects</span>' : "") + '</h3>' +
+            '<p>' + (r.description || "No description") + ' · ' + userCount + ' user(s) assigned</p></div>' +
+            '<div style="display:flex;gap:8px;flex-shrink:0">' +
+              (canManage ? '<button class="btn btn-outline" data-edit="' + r.id + '" style="padding:8px 14px;font-size:12.5px">Edit</button>' : "") +
+              (canManage && !r.isSystem ? '<button class="btn btn-outline danger" data-delete="' + r.id + '" style="padding:8px 14px;font-size:12.5px">Delete</button>' : "") +
+            '</div>' +
+          '</div>' +
+          '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">' + (modSummary || '<span class="desc-cell">No module access granted</span>') + '</div>' +
+        '</div>';
+      }).join("");
+    }
+
+    document.getElementById("roleList").addEventListener("click", function (e) {
+      var edit = e.target.closest("[data-edit]");
+      if (edit) { openModal(edit.getAttribute("data-edit")); return; }
+      var del = e.target.closest("[data-delete]");
+      if (del) { deleteRole(del.getAttribute("data-delete")); return; }
+    });
+
+    function deleteRole(id) {
+      var users = Data.getUsers();
+      if (users.some(function (u) { return u.roleId === id; })) {
+        App.showToast("Can't delete a role that's assigned to a user", true);
+        return;
+      }
+      if (!confirm("Delete this role?")) return;
+      Data.saveRoles(Data.getRoles().filter(function (r) { return r.id !== id; }));
+      App.showToast("Role deleted");
+      renderList();
+    }
+
+    var modal = document.getElementById("roleModal");
+    function openModal(id) {
+      document.getElementById("roleForm").reset();
+      document.getElementById("editId").value = id || "";
+      if (id) {
+        var r = Data.getRoles().find(function (x) { return x.id === id; });
+        document.getElementById("modalTitle").textContent = "Edit Role: " + r.name;
+        document.getElementById("fName").value = r.name;
+        document.getElementById("fDesc").value = r.description || "";
+        document.querySelector('input[name="fAllProjects"][value="' + (r.allProjects ? "true" : "false") + '"]').checked = true;
+        renderPermRows(r.permissions);
+      } else {
+        document.getElementById("modalTitle").textContent = "New Role";
+        renderPermRows(null);
+      }
+      modal.classList.add("show");
+    }
+    function closeModal() { modal.classList.remove("show"); }
+
+    document.getElementById("addRoleBtn").addEventListener("click", function () { openModal(null); });
+    document.getElementById("closeModal").addEventListener("click", closeModal);
+    document.getElementById("cancelModal").addEventListener("click", closeModal);
+    modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+    document.getElementById("saveBtn").addEventListener("click", function () {
+      var name = document.getElementById("fName").value.trim();
+      if (!name) { App.showToast("Role name is required", true); return; }
+
+      var id = document.getElementById("editId").value;
+      var permissions = {};
+      Data.PERMISSION_MODULES.forEach(function (m) { permissions[m.key] = { create: false, read: false, update: false, delete: false }; });
+      document.querySelectorAll("#permRows input[type=checkbox]").forEach(function (cb) {
+        permissions[cb.getAttribute("data-mod")][cb.getAttribute("data-action")] = cb.checked;
+      });
+
+      var existing = id ? Data.getRoles().find(function (r) { return r.id === id; }) : null;
+      var record = {
+        id: id || Data.uid("role"),
+        name: name,
+        description: document.getElementById("fDesc").value.trim(),
+        allProjects: document.querySelector('input[name="fAllProjects"]:checked').value === "true",
+        isSystem: existing ? existing.isSystem : false,
+        permissions: permissions
+      };
+
+      var roles = Data.getRoles();
+      roles = id ? roles.map(function (r) { return r.id === id ? record : r; }) : roles.concat([record]);
+      Data.saveRoles(roles);
+      App.showToast(id ? "Role updated" : "Role created");
+      closeModal();
+      renderList();
+    });
+
+    renderList();
+  }
+</script>
+</body>
+</html>

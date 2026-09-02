@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Labourer Profile</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div><h2 id="labName">Loading…</h2><p id="labMeta"></p></div>
+        <a class="btn btn-outline" href="labour-list.html">&larr; Back to Labourers</a>
+      </div>
+      <div id="pageBody"></div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  App.renderShell({ active: "labour", title: "Labourer Profile", subtitle: "Cross-project history" });
+
+  var labId = new URLSearchParams(window.location.search).get("id");
+  var lab = Data.getLabourers().find(function (l) { return l.id === labId; });
+
+  if (!lab) {
+    document.getElementById("labName").textContent = "Labourer not found";
+  } else {
+    document.getElementById("labName").textContent = lab.name;
+    document.getElementById("labMeta").textContent = lab.skill + " · " + (lab.phone || "No phone on file") + " · ₹" + lab.defaultDailyWage + "/day";
+
+    var visibleIds = App.visibleProjects().map(function (p) { return p.id; });
+    var sum = Business.getWageSummary(labId);
+
+    document.getElementById("pageBody").innerHTML =
+      '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
+      '<div class="panel-grid">' +
+        '<div class="panel">' +
+          '<div class="panel-header"><h3>Attendance History</h3><span class="panel-tag">' + sum.attendance.length + ' entries</span></div>' +
+          '<div class="table-scroll" style="max-height:420px;overflow-y:auto"><table class="data-table"><thead><tr><th>Date</th><th>Project</th><th>Days</th><th>Amount</th></tr></thead><tbody id="attBody"></tbody></table></div>' +
+        '</div>' +
+        '<div class="panel">' +
+          '<div class="panel-header"><h3>Payment History</h3><span class="panel-tag">' + sum.payments.length + ' entries</span></div>' +
+          '<div class="table-scroll" style="max-height:420px;overflow-y:auto"><table class="data-table"><thead><tr><th>Date</th><th>Project</th><th>Type</th><th>Amount</th></tr></thead><tbody id="payBody"></tbody></table></div>' +
+        '</div>' +
+      '</div>';
+
+    document.getElementById("statGrid").innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-amber">' + App.svg("calendar") + '</div><div class="stat-value">' + sum.daysWorked + '</div><div class="stat-label">Total days worked</div></div>' +
+      '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("trendingUp") + '</div><div class="stat-value">₹' + Charts.fmtCompact(sum.earned) + '</div><div class="stat-label">Total earned</div></div>' +
+      '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("coins") + '</div><div class="stat-value">₹' + Charts.fmtCompact(sum.paid) + '</div><div class="stat-label">Total paid</div></div>' +
+      '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(sum.owed) + '</div><div class="stat-label">Balance owed</div></div>';
+
+    var attendance = sum.attendance.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+    document.getElementById("attBody").innerHTML = attendance.length ? attendance.map(function (a) {
+      var proj = Data.getProjects().find(function (p) { return p.id === a.projectId; });
+      var projLabel = proj ? (visibleIds.indexOf(proj.id) !== -1 ? '<a href="project-labour.html?id=' + proj.id + '">' + proj.name + '</a>' : proj.name) : "—";
+      return '<tr><td>' + Data.displayDate(a.date) + '</td><td>' + projLabel + '</td><td>' + a.daysWorked + '</td><td>₹' + Math.round(a.daysWorked * a.wageRate) + '</td></tr>';
+    }).join("") : '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("calendar") + '<p>No attendance recorded.</p></div></td></tr>';
+
+    var payments = sum.payments.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+    document.getElementById("payBody").innerHTML = payments.length ? payments.map(function (p) {
+      var proj = Data.getProjects().find(function (x) { return x.id === p.projectId; });
+      return '<tr><td>' + Data.displayDate(p.date) + '</td><td>' + (proj ? proj.name : "—") + '</td>' +
+        '<td><span class="chip ' + (p.type === "advance" ? "chip-amber" : "chip-green") + '">' + (p.type === "advance" ? "Advance" : "Payment") + '</span></td>' +
+        '<td class="total-amount">₹' + p.amount + '</td></tr>';
+    }).join("") : '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("coins") + '<p>No payments recorded.</p></div></td></tr>';
+  }
+</script>
+</body>
+</html>

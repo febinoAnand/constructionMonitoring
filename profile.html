@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profile</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div><h2>Profile</h2><p>Your account details in this demo session.</p></div>
+      </div>
+
+      <div class="detail-grid">
+        <div class="detail-card">
+          <div class="detail-card-header">Account</div>
+          <div class="detail-rows" id="infoRows"></div>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card-header">Assigned Projects</div>
+          <div id="assignedList" style="padding:18px 20px"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  App.renderShell({ active: "profile", title: "Profile", subtitle: "Your account" });
+
+  var user = App.getCurrentUser();
+  var role = App.getCurrentRole();
+
+  function row(label, value) {
+    return '<div class="detail-row"><span class="detail-label">' + label + '</span><span class="detail-value">' + value + '</span></div>';
+  }
+
+  document.getElementById("infoRows").innerHTML =
+    row("Name", user.name) +
+    row("Role", role ? role.name : "—") +
+    row("Phone", user.phone || "—") +
+    row("Access", role && role.allProjects ? "All projects" : "Only assigned project(s) below");
+
+  var assignedEl = document.getElementById("assignedList");
+  var projects = App.visibleProjects();
+  if (!projects.length) {
+    assignedEl.innerHTML = '<div class="empty-state compact">' + App.svg("building") + '<p>No projects assigned yet.</p></div>';
+  } else {
+    assignedEl.innerHTML = '<div class="activity-list">' + projects.map(function (p) {
+      return '<div class="activity-item"><div class="activity-dot"></div><div><p><a href="project-overview.html?id=' + p.id + '"><strong>' + p.name + '</strong></a></p><span>' + p.code + ' · ' + (p.clientName || "") + '</span></div></div>';
+    }).join("") + '</div>';
+  }
+</script>
+</body>
+</html>

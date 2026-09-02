@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Progress</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div><h2 id="projName">Loading…</h2><p id="projMeta"></p></div>
+      </div>
+
+      <div id="tabsMount"></div>
+      <div id="pageBody"></div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  var projectId = new URLSearchParams(window.location.search).get("id");
+  var project = Data.getProjects().find(function (p) { return p.id === projectId; });
+  App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: "Progress & completion estimate" });
+
+  if (!project || !App.guardProjectAccess(projectId)) {
+    document.getElementById("projName").textContent = project ? "Access restricted" : "Project not found";
+  } else {
+    document.getElementById("projName").textContent = project.name;
+    document.getElementById("projMeta").textContent = project.code;
+    document.getElementById("tabsMount").innerHTML = App.projectTabsHtml(projectId, "progress");
+    var canCreate = App.can("progress", "create");
+    var canDelete = App.can("progress", "delete");
+
+    document.getElementById("pageBody").innerHTML =
+      '<div class="panel-grid">' +
+        '<div class="panel">' +
+          '<div class="panel-header"><h3>Current Progress</h3></div>' +
+          '<div class="progress-ring-wrap" id="progressRing"></div>' +
+        '</div>' +
+        (canCreate ?
+        '<div class="panel">' +
+          '<div class="panel-header"><h3>Log New Progress Update</h3></div>' +
+          '<form id="progForm">' +
+            '<div class="field-grid">' +
+              '<div class="field"><label>Date</label><input type="date" id="fDate"></div>' +
+              '<div class="field"><label>% Complete <span class="req">*</span></label><input type="number" id="fPct" min="0" max="100" required></div>' +
+              '<div class="field full"><label>Notes</label><input type="text" id="fNotes" placeholder="e.g. Structure stage nearing completion"></div>' +
+            '</div>' +
+            '<div class="modal-footer" style="padding:16px 0 0;border-top:none"><button type="submit" class="btn btn-primary">+ Add Update</button></div>' +
+          '</form>' +
+        '</div>' : '<div class="panel"><div class="empty-state compact">' + App.svg("trendingUp") + '<p>You don\'t have permission to log progress updates.</p></div></div>') +
+      '</div>' +
+      '<div class="panel full-panel" style="margin-top:20px">' +
+        '<div class="panel-header"><h3>Progress Over Time</h3></div>' +
+        '<div id="progChart"></div>' +
+      '</div>' +
+      '<div class="panel full-panel">' +
+        '<div class="panel-header"><h3>Update History</h3></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>% Complete</th><th>Notes</th>' + (canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="histBody"></tbody></table></div>' +
+      '</div>';
+
+    if (document.getElementById("fDate")) document.getElementById("fDate").value = Data.isoDate(Data.today());
+
+    function renderAll() {
+      var est = Business.estimateCompletion(project);
+      var ringHost = document.createElement("div");
+      Charts.renderProgressRing(ringHost, est.percentComplete);
+      document.getElementById("progressRing").innerHTML = ringHost.innerHTML +
+        '<div class="progress-ring-meta">' +
+          '<strong>' + est.percentComplete + '% complete</strong>' +
+          '<span>' + (est.hasData ? "Estimated finish: " + Data.displayDate(est.estimatedDate) : "No updates logged yet") + '</span>' +
+          '<span>Target: ' + (project.targetEndDate ? Data.displayDate(project.targetEndDate) : "—") + '</span>' +
+          (est.atRisk ? '<span class="badge badge-danger" style="margin-top:6px">Projected to miss target</span>' : (est.hasData ? '<span class="badge badge-success" style="margin-top:6px">On track for target</span>' : '')) +
+        '</div>';
+
+      var updates = Data.getProgressUpdates().filter(function (p) { return p.projectId === projectId; })
+        .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+
+      Charts.renderBarChart(document.getElementById("progChart"), updates.map(function (u) {
+        return { label: Data.displayDate(u.date).slice(0, 6), value: u.percentComplete };
+      }), { formatValue: function (v) { return v + "%"; } });
+
+      var histBody = document.getElementById("histBody");
+      if (!updates.length) {
+        histBody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("trendingUp") + '<p>No progress updates yet.</p></div></td></tr>';
+      } else {
+        histBody.innerHTML = updates.slice().reverse().map(function (u) {
+          return '<tr>' +
+            '<td>' + Data.displayDate(u.date) + '</td>' +
+            '<td><strong>' + u.percentComplete + '%</strong></td>' +
+            '<td class="desc-cell">' + (u.notes || "—") + '</td>' +
+            (canDelete ? '<td><button class="action-trigger" data-del="' + u.id + '">' + App.svg("trash") + '</button></td>' : '') +
+          '</tr>';
+        }).join("");
+      }
+    }
+
+    document.getElementById("histBody").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-del]");
+      if (!btn) return;
+      Data.saveProgressUpdates(Data.getProgressUpdates().filter(function (p) { return p.id !== btn.getAttribute("data-del"); }));
+      App.showToast("Update removed");
+      renderAll();
+    });
+
+    var progFormEl = document.getElementById("progForm");
+    if (progFormEl) progFormEl.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var pct = Number(document.getElementById("fPct").value);
+      if (pct < 0 || pct > 100 || document.getElementById("fPct").value === "") { App.showToast("Enter a percent between 0 and 100", true); return; }
+      var updates = Data.getProgressUpdates();
+      updates.push({
+        id: Data.uid("pu"), projectId: projectId, date: document.getElementById("fDate").value,
+        percentComplete: pct, notes: document.getElementById("fNotes").value.trim()
+      });
+      Data.saveProgressUpdates(updates);
+      App.showToast("Progress update added");
+      document.getElementById("progForm").reset();
+      document.getElementById("fDate").value = Data.isoDate(Data.today());
+      renderAll();
+    });
+
+    renderAll();
+  }
+</script>
+</body>
+</html>

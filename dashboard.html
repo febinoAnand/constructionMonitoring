@@ -72,7 +72,7 @@
   App.renderShell({ active: "dashboard", title: "Dashboard", subtitle: "Overview of your projects" });
 
   document.getElementById("heroGreeting").textContent = "Welcome back, " + currentUser.name.split(" ")[0] + " 👋";
-  document.getElementById("heroSub").textContent = currentUser.role === "admin"
+  document.getElementById("heroSub").textContent = App.isAdmin()
     ? "Here's how all your construction projects are progressing today."
     : "Here's how your assigned project(s) are progressing today.";
 
@@ -83,6 +83,10 @@
   projects.forEach(function (p) { totalWagesDue += Business.getWagesDueTotal(p.id); });
   var totalSpent = 0;
   projects.forEach(function (p) { totalSpent += Business.getProjectCost(p.id).totalCashSpent; });
+  var totalReceivables = 0;
+  if (App.can("customers", "read")) {
+    Data.getCustomers().forEach(function (c) { totalReceivables += Business.getCustomerLedger(c.id).balanceDue; });
+  }
 
   /* ---------------- Module strip ---------------- */
   var moduleStrip = document.getElementById("moduleStrip");
@@ -107,7 +111,15 @@
         '<span class="module-value">' + Data.getMaterials().length + '</span>' +
         '<span class="module-sub">' + alerts.length + ' low-stock alert(s)</span></span>' +
       '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
-    '</a>';
+    '</a>' +
+    (App.can("customers", "read") ?
+    '<a class="module-card c4" href="customers.html">' +
+      '<span class="module-icon">' + App.svg("briefcase") + '</span>' +
+      '<span class="module-info"><span class="module-label">Customers</span>' +
+        '<span class="module-value">' + Data.getCustomers().length + '</span>' +
+        '<span class="module-sub">₹' + Charts.fmtCompact(totalReceivables) + ' receivable</span></span>' +
+      '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
+    '</a>' : '');
 
   /* ---------------- Stat grid ---------------- */
   var statGrid = document.getElementById("statGrid");
@@ -119,7 +131,8 @@
     statCard("building", "icon-amber", projects.length, "Projects visible to you") +
     statCard("coins", "icon-orange", "₹" + Charts.fmtCompact(totalWagesDue), "Total wages due") +
     statCard("alert", "icon-blue", alerts.length, "Low-stock alerts") +
-    statCard("wallet", "icon-slate", "₹" + Charts.fmtCompact(totalSpent), "Total cash spent");
+    statCard("wallet", "icon-slate", "₹" + Charts.fmtCompact(totalSpent), "Total cash spent") +
+    (App.can("customers", "read") ? statCard("briefcase", "icon-pink", "₹" + Charts.fmtCompact(totalReceivables), "Total receivable from customers") : "");
 
   /* ---------------- Project progress list ---------------- */
   var progressListEl = document.getElementById("projectProgressList");

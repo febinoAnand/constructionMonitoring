@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Customer Ledger</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div><h2 id="custName">Loading…</h2><p id="custMeta"></p></div>
+        <a class="btn btn-outline" href="customers.html">&larr; Back to Customers</a>
+      </div>
+      <div id="pageBody"></div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  App.renderShell({ active: "customers", title: "Customer Ledger", subtitle: "Billing history" });
+
+  if (!App.guardPermission("customers", "read")) {
+    document.querySelector(".content").style.display = "none";
+  } else {
+    var custId = new URLSearchParams(window.location.search).get("id");
+    var cust = Data.getCustomers().find(function (c) { return c.id === custId; });
+    var canAddEntry = App.can("customers", "create");
+    var canDeleteEntry = App.can("customers", "delete");
+
+    if (!cust) {
+      document.getElementById("custName").textContent = "Customer not found";
+    } else {
+      document.getElementById("custName").textContent = cust.name;
+      document.getElementById("custMeta").textContent = (cust.contactPerson || "No contact set") + " · " + (cust.phone || "No phone");
+
+      var linkedProjects = Data.getProjects().filter(function (p) { return p.customerId === custId; });
+
+      document.getElementById("pageBody").innerHTML =
+        '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
+        '<div class="detail-grid">' +
+          '<div class="detail-card">' +
+            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("briefcase") + '</span>Customer Info</div>' +
+            '<div class="detail-rows" id="infoRows"></div>' +
+          '</div>' +
+          '<div class="detail-card">' +
+            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("building") + '</span>Linked Projects</div>' +
+            '<div style="padding:18px 20px" id="linkedProjectsBox"></div>' +
+          '</div>' +
+        '</div>' +
+        (canAddEntry ?
+          '<div class="panel full-panel">' +
+            '<div class="panel-header"><h3>Add Ledger Entry</h3></div>' +
+            '<form class="inline-add-form" id="ledgerForm">' +
+              '<div class="field"><label>Type</label><select id="fType"><option value="invoice">Invoice (billed)</option><option value="receipt">Receipt (payment received)</option></select></div>' +
+              '<div class="field" style="flex:1.4"><label>Project</label><select id="fProject"><option value="">— No project —</option>' +
+                linkedProjects.map(function (p) { return '<option value="' + p.id + '">' + p.name + '</option>'; }).join("") +
+              '</select></div>' +
+              '<div class="field"><label>Amount (₹)</label><input type="number" id="fAmount" min="0" required></div>' +
+              '<div class="field"><label>Date</label><input type="date" id="fDate"></div>' +
+              '<div class="field" style="flex:1.4"><label>Description / Invoice #</label><input type="text" id="fDesc"></div>' +
+              '<button type="submit" class="btn btn-primary">+ Add Entry</button>' +
+            '</form>' +
+          '</div>' : '') +
+        '<div class="panel full-panel">' +
+          '<div class="panel-header"><h3>Ledger History</h3><span class="panel-tag" id="entryCount"></span></div>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Project</th><th>Description</th><th>Amount</th><th></th></tr></thead><tbody id="ledgerBody"></tbody></table></div>' +
+        '</div>';
+
+      var fDateEl = document.getElementById("fDate");
+      if (fDateEl) fDateEl.value = Data.isoDate(Data.today());
+
+      function row(label, value) {
+        return '<div class="detail-row"><span class="detail-label">' + label + '</span><span class="detail-value">' + value + '</span></div>';
+      }
+
+      document.getElementById("infoRows").innerHTML =
+        row("Company Name", cust.name) +
+        row("Contact Person", cust.contactPerson || "—") +
+        row("Phone", cust.phone || "—") +
+        row("Email", cust.email || "—") +
+        row("GSTIN", cust.gstin || "—") +
+        row("Address", cust.address || "—") +
+        row("Notes", cust.notes || "—");
+
+      var linkedBox = document.getElementById("linkedProjectsBox");
+      linkedBox.innerHTML = linkedProjects.length
+        ? '<div class="activity-list">' + linkedProjects.map(function (p) {
+            return '<div class="activity-item"><div class="activity-dot"></div><div><p><a href="project-overview.html?id=' + p.id + '"><strong>' + p.name + '</strong></a></p><span>' + p.code + ' · ' + p.status + '</span></div></div>';
+          }).join("") + '</div>'
+        : '<div class="empty-state compact">' + App.svg("building") + '<p>No projects linked to this customer yet.</p></div>';
+
+      function renderLedger() {
+        var l = Business.getCustomerLedger(custId);
+        document.getElementById("statGrid").innerHTML =
+          '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("fileText") + '</div><div class="stat-value">₹' + Charts.fmtCompact(l.invoiced) + '</div><div class="stat-label">Total invoiced</div></div>' +
+          '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("coins") + '</div><div class="stat-value">₹' + Charts.fmtCompact(l.received) + '</div><div class="stat-label">Total received</div></div>' +
+          '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(l.balanceDue) + '</div><div class="stat-label">Balance due</div></div>';
+
+        var entries = l.entries.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+        document.getElementById("entryCount").textContent = entries.length + " entries";
+        var body = document.getElementById("ledgerBody");
+        if (!entries.length) {
+          body.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("wallet") + '<p>No billing history yet.</p></div></td></tr>';
+          return;
+        }
+        body.innerHTML = entries.map(function (e) {
+          var proj = Data.getProjects().find(function (p) { return p.id === e.projectId; });
+          return '<tr>' +
+            '<td>' + Data.displayDate(e.date) + '</td>' +
+            '<td><span class="chip ' + (e.type === "invoice" ? "chip-amber" : "chip-green") + '">' + (e.type === "invoice" ? "Invoice" : "Receipt") + '</span></td>' +
+            '<td>' + (proj ? proj.name : "—") + '</td>' +
+            '<td class="desc-cell">' + (e.description || "—") + (e.invoiceNumber ? ' (' + e.invoiceNumber + ')' : "") + '</td>' +
+            '<td class="total-amount">₹' + e.amount + '</td>' +
+            '<td>' + (canDeleteEntry ? '<button class="action-trigger" data-del="' + e.id + '">' + App.svg("trash") + '</button>' : "") + '</td>' +
+          '</tr>';
+        }).join("");
+      }
+
+      document.getElementById("pageBody").addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-del]");
+        if (!btn) return;
+        Data.saveCustomerLedger(Data.getCustomerLedger().filter(function (x) { return x.id !== btn.getAttribute("data-del"); }));
+        App.showToast("Entry removed");
+        renderLedger();
+      });
+
+      var ledgerForm = document.getElementById("ledgerForm");
+      if (ledgerForm) {
+        ledgerForm.addEventListener("submit", function (e) {
+          e.preventDefault();
+          var amount = Number(document.getElementById("fAmount").value);
+          if (!amount) { App.showToast("Enter an amount", true); return; }
+          var entries = Data.getCustomerLedger();
+          entries.push({
+            id: Data.uid("cl"), customerId: custId, projectId: document.getElementById("fProject").value || null,
+            type: document.getElementById("fType").value, amount: amount,
+            date: document.getElementById("fDate").value,
+            description: document.getElementById("fDesc").value.trim(), invoiceNumber: ""
+          });
+          Data.saveCustomerLedger(entries);
+          App.showToast("Ledger entry added");
+          ledgerForm.reset();
+          document.getElementById("fDate").value = Data.isoDate(Data.today());
+          renderLedger();
+        });
+      }
+
+      renderLedger();
+    }
+  }
+</script>
+</body>
+</html>

@@ -36,23 +36,41 @@
     return window.Data.getUsers().find(function (u) { return u.id === id; }) || null;
   }
 
-  function isAdmin() {
+  function getCurrentRole() {
     var u = getCurrentUser();
-    return !!u && u.role === "admin";
+    if (!u) return null;
+    return window.Data.getRoles().find(function (r) { return r.id === u.roleId; }) || null;
+  }
+
+  /* "Admin" here means "sees every project" (role.allProjects), not necessarily
+     full module permissions — a role can have allProjects:true (e.g. Accountant)
+     while still being denied create/edit on most modules. Use can() for that. */
+  function isAdmin() {
+    var role = getCurrentRole();
+    return !!role && role.allProjects === true;
+  }
+
+  function can(moduleKey, action) {
+    var role = getCurrentRole();
+    if (!role) return false;
+    var perms = role.permissions && role.permissions[moduleKey];
+    return !!(perms && perms[action]);
   }
 
   function canAccessProject(projectId) {
     var u = getCurrentUser();
-    if (!u) return false;
-    if (u.role === "admin") return true;
+    var role = getCurrentRole();
+    if (!u || !role) return false;
+    if (role.allProjects) return true;
     return (u.assignedProjectIds || []).indexOf(projectId) !== -1;
   }
 
   function visibleProjects() {
     var u = getCurrentUser();
+    var role = getCurrentRole();
     var all = window.Data.getProjects();
-    if (!u) return [];
-    if (u.role === "admin") return all;
+    if (!u || !role) return [];
+    if (role.allProjects) return all;
     return all.filter(function (p) { return (u.assignedProjectIds || []).indexOf(p.id) !== -1; });
   }
 
@@ -64,10 +82,24 @@
     return false;
   }
 
+  function guardAdminOnly() {
+    if (isAdmin()) return true;
+    showAccessRestricted();
+    return false;
+  }
+
+  /* Call at the top of a global (non-project-scoped) page whose module requires
+     "read" permission to view at all, e.g. guardPermission('roles', 'read'). */
+  function guardPermission(moduleKey, action) {
+    if (can(moduleKey, action)) return true;
+    showAccessRestricted();
+    return false;
+  }
+
   function applyRoleVisibility() {
-    var admin = isAdmin();
-    document.querySelectorAll("[data-admin-only]").forEach(function (el) {
-      if (!admin) el.style.display = "none";
+    document.querySelectorAll("[data-require]").forEach(function (el) {
+      var parts = el.getAttribute("data-require").split(":");
+      if (!can(parts[0], parts[1])) el.style.display = "none";
     });
   }
 
@@ -106,12 +138,13 @@
 
   function initUserBadge() {
     var u = getCurrentUser();
+    var role = getCurrentRole();
     var name = u ? u.name : "Guest";
-    var role = u ? (u.role === "admin" ? "Administrator" : "Site Supervisor") : "";
+    var roleName = role ? role.name : "";
     var initial = name.charAt(0).toUpperCase();
 
     document.querySelectorAll("[data-user-name]").forEach(function (el) { el.textContent = name; });
-    document.querySelectorAll("[data-user-role]").forEach(function (el) { el.textContent = role; });
+    document.querySelectorAll("[data-user-role]").forEach(function (el) { el.textContent = roleName; });
     document.querySelectorAll("[data-user-initial]").forEach(function (el) { el.textContent = initial; });
   }
 
@@ -258,7 +291,11 @@
     clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>',
     coins: '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="M16.71 13.88l.7.71-2.82 2.82"/>',
     hardHat: '<path d="M3 18h18"/><path d="M5 18a7 7 0 0 1 14 0"/><path d="M12 6v5"/><path d="M9 6h6a1 1 0 0 1 1 1v1H8V7a1 1 0 0 1 1-1z"/>',
-    menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>'
+    menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
+    briefcase: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    columns: '<rect x="3" y="4" width="6" height="16" rx="1"/><rect x="9" y="4" width="6" height="10" rx="1"/><rect x="15" y="4" width="6" height="13" rx="1"/>',
+    userPlus: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/>'
   };
 
   function svg(name, extraClass) {
@@ -272,10 +309,13 @@
     { key: "dashboard", href: "dashboard.html", label: "Dashboard", icon: "dashboard" },
     { key: "projects", href: "projects.html", label: "Projects", icon: "building" },
     { section: "Workforce & Materials" },
-    { key: "labour", href: "labour-list.html", label: "Labourers", icon: "people" },
-    { key: "materials", href: "materials.html", label: "Materials", icon: "box" },
+    { key: "labour", href: "labour-list.html", label: "Labourers", icon: "people", require: "labour:read" },
+    { key: "materials", href: "materials.html", label: "Materials", icon: "box", require: "stock:read" },
+    { section: "Business" },
+    { key: "customers", href: "customers.html", label: "Customers", icon: "briefcase", require: "customers:read" },
     { section: "Account" },
-    { key: "users", href: "user-list.html", label: "Users", icon: "hardHat", adminOnly: true },
+    { key: "users", href: "user-list.html", label: "Users", icon: "hardHat", require: "users:read" },
+    { key: "roles", href: "roles.html", label: "Roles & Permissions", icon: "shield", require: "roles:read" },
     { key: "profile", href: "profile.html", label: "Profile", icon: "userCircle" }
   ];
 
@@ -294,8 +334,9 @@
     initUserBadge();
     applyRoleVisibility();
 
-    var role = document.querySelector("[data-user-role-badge]");
-    if (role) role.textContent = user.role === "admin" ? "Administrator" : "Site Supervisor";
+    var role = getCurrentRole();
+    var badge = document.querySelector("[data-user-role-badge]");
+    if (badge) badge.textContent = role ? role.name : "";
   }
 
   function buildSidebarHtml(activeKey) {
@@ -304,8 +345,8 @@
         return '<span class="nav-section-label">' + item.section + '</span>';
       }
       var activeCls = item.key === activeKey ? " active" : "";
-      var adminAttr = item.adminOnly ? ' data-admin-only' : "";
-      return '<a class="nav-item' + activeCls + '" href="' + item.href + '"' + adminAttr + '>' +
+      var reqAttr = item.require ? ' data-require="' + item.require + '"' : "";
+      return '<a class="nav-item' + activeCls + '" href="' + item.href + '"' + reqAttr + '>' +
         svg(item.icon) + item.label + '</a>';
     }).join("");
 
@@ -342,6 +383,7 @@
 
   var PROJECT_TABS = [
     { key: "overview", href: "project-overview.html", label: "Overview", icon: "dashboard" },
+    { key: "tasks", href: "project-tasks.html", label: "Tasks", icon: "columns" },
     { key: "labour", href: "project-labour.html", label: "Labour", icon: "people" },
     { key: "stock", href: "project-stock.html", label: "Stock", icon: "box" },
     { key: "expenses", href: "project-expenses.html", label: "Expenses", icon: "wallet" },
@@ -406,10 +448,14 @@
     login: login,
     logout: logout,
     getCurrentUser: getCurrentUser,
+    getCurrentRole: getCurrentRole,
     isAdmin: isAdmin,
+    can: can,
     canAccessProject: canAccessProject,
     visibleProjects: visibleProjects,
     guardProjectAccess: guardProjectAccess,
+    guardAdminOnly: guardAdminOnly,
+    guardPermission: guardPermission,
     applyRoleVisibility: applyRoleVisibility,
     initSidebar: initSidebar,
     initLogout: initLogout,
@@ -419,6 +465,7 @@
     showToast: showToast,
     renderShell: renderShell,
     svg: svg,
-    icons: ICONS
+    icons: ICONS,
+    projectTabsHtml: projectTabsHtml
   };
 })();

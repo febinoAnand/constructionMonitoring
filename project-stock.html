@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Stock</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div><h2 id="projName">Loading…</h2><p id="projMeta"></p></div>
+      </div>
+
+      <div id="tabsMount"></div>
+      <div id="pageBody"></div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  var projectId = new URLSearchParams(window.location.search).get("id");
+  var project = Data.getProjects().find(function (p) { return p.id === projectId; });
+  App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: "Stock & materials" });
+
+  if (!project || !App.guardProjectAccess(projectId)) {
+    document.getElementById("projName").textContent = project ? "Access restricted" : "Project not found";
+  } else {
+    document.getElementById("projName").textContent = project.name;
+    document.getElementById("projMeta").textContent = project.code;
+    document.getElementById("tabsMount").innerHTML = App.projectTabsHtml(projectId, "stock");
+
+    var materials = Data.getMaterials();
+    var materialOptions = materials.map(function (m) { return '<option value="' + m.id + '">' + m.name + ' (' + m.unit + ')</option>'; }).join("");
+    var canCreate = App.can("stock", "create");
+    var canDelete = App.can("stock", "delete");
+
+    document.getElementById("pageBody").innerHTML =
+      (canCreate ?
+      '<div class="panel full-panel">' +
+        '<div class="panel-header"><h3>Record Stock Movement</h3><span class="section-subheading" style="margin:0">Materials can be restocked (inward) as many times as needed.</span></div>' +
+        '<form class="inline-add-form" id="stockForm">' +
+          '<div class="field" style="flex:1.4;min-width:180px"><label>Material</label><select id="sMaterial">' + materialOptions + '</select></div>' +
+          '<div class="field"><label>Type</label><select id="sType"><option value="inward">Inward (purchase)</option><option value="outward">Outward (used)</option><option value="adjustment">Adjustment</option></select></div>' +
+          '<div class="field"><label>Quantity</label><input type="number" id="sQty" min="0" step="0.01" required></div>' +
+          '<div class="field"><label>Rate / unit (₹)</label><input type="number" id="sRate" min="0"></div>' +
+          '<div class="field"><label>Date</label><input type="date" id="sDate"></div>' +
+          '<div class="field" style="flex:1.4;min-width:160px" id="sSupplierWrap"><label>Supplier</label><input type="text" id="sSupplier"></div>' +
+          '<button type="submit" class="btn btn-primary">+ Add Entry</button>' +
+        '</form>' +
+      '</div>' : '') +
+      '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
+      '<div class="panel full-panel">' +
+        '<div class="panel-header"><h3>Current Stock Balance</h3></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Category</th><th>Balance</th><th>Reorder Threshold</th><th>Status</th></tr></thead><tbody id="balanceBody"></tbody></table></div>' +
+      '</div>' +
+      '<div class="panel full-panel">' +
+        '<div class="panel-header"><h3>Transaction History</h3><span class="panel-tag" id="txnCount"></span></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Material</th><th>Type</th><th>Quantity</th><th>Amount</th><th>Supplier / Notes</th>' + (canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="txnBody"></tbody></table></div>' +
+      '</div>';
+
+    if (document.getElementById("sDate")) document.getElementById("sDate").value = Data.isoDate(Data.today());
+
+    var sTypeEl = document.getElementById("sType");
+    if (sTypeEl) sTypeEl.addEventListener("change", function () {
+      document.getElementById("sSupplierWrap").style.display = this.value === "inward" ? "" : "none";
+    });
+
+    function renderStats() {
+      var balances = Business.getAllStockBalances(projectId).filter(function (r) { return r.hasActivity; });
+      var lowCount = balances.filter(function (r) { return r.isLowStock; }).length;
+      var totalPurchased = Data.getStockTransactions().filter(function (t) { return t.projectId === projectId && t.type === "inward"; }).reduce(function (s, t) { return s + t.totalAmount; }, 0);
+      document.getElementById("statGrid").innerHTML =
+        '<div class="stat-card"><div class="stat-icon icon-amber">' + App.svg("box") + '</div><div class="stat-value">' + balances.length + '</div><div class="stat-label">Materials in use</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-pink">' + App.svg("alert") + '</div><div class="stat-value">' + lowCount + '</div><div class="stat-label">Low-stock materials</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("truck") + '</div><div class="stat-value">₹' + Charts.fmtCompact(totalPurchased) + '</div><div class="stat-label">Total purchased</div></div>';
+    }
+
+    function renderBalances() {
+      var rows = Business.getAllStockBalances(projectId);
+      document.getElementById("balanceBody").innerHTML = rows.map(function (r) {
+        var statusHtml = !r.hasActivity
+          ? '<span class="status-pill pending">No activity</span>'
+          : r.isLowStock ? '<span class="status-pill at-risk">Low stock</span>' : '<span class="status-pill on-track">Sufficient</span>';
+        return '<tr>' +
+          '<td><strong>' + r.material.name + '</strong></td>' +
+          '<td><span class="chip chip-slate">' + (r.material.category || "—") + '</span></td>' +
+          '<td>' + r.balance + ' ' + r.material.unit + '</td>' +
+          '<td>' + r.material.reorderThreshold + ' ' + r.material.unit + '</td>' +
+          '<td>' + statusHtml + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    function renderTxns() {
+      var txns = Data.getStockTransactions().filter(function (t) { return t.projectId === projectId; })
+        .sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 40);
+      document.getElementById("txnCount").textContent = txns.length + " shown";
+      var body = document.getElementById("txnBody");
+      if (!txns.length) {
+        body.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("truck") + '<p>No stock movements recorded yet.</p></div></td></tr>';
+        return;
+      }
+      body.innerHTML = txns.map(function (t) {
+        var mat = materials.find(function (m) { return m.id === t.materialId; });
+        var typeChip = t.type === "inward" ? '<span class="chip chip-green">Inward</span>' : t.type === "outward" ? '<span class="chip chip-amber">Outward</span>' : '<span class="chip chip-slate">Adjustment</span>';
+        return '<tr>' +
+          '<td>' + Data.displayDate(t.date) + '</td>' +
+          '<td>' + (mat ? mat.name : "—") + '</td>' +
+          '<td>' + typeChip + '</td>' +
+          '<td>' + t.quantity + ' ' + (mat ? mat.unit : "") + '</td>' +
+          '<td>₹' + t.totalAmount + '</td>' +
+          '<td class="desc-cell">' + (t.supplierName || t.notes || "—") + '</td>' +
+          (canDelete ? '<td><button class="action-trigger" data-del="' + t.id + '">' + App.svg("trash") + '</button></td>' : '') +
+        '</tr>';
+      }).join("");
+    }
+
+    function renderAll() { renderStats(); renderBalances(); renderTxns(); }
+
+    var stockFormEl = document.getElementById("stockForm");
+    if (stockFormEl) stockFormEl.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var qty = Number(document.getElementById("sQty").value);
+      if (!qty) { App.showToast("Enter a quantity", true); return; }
+      var rate = Number(document.getElementById("sRate").value) || 0;
+      var txns = Data.getStockTransactions();
+      txns.push({
+        id: Data.uid("st"), projectId: projectId, materialId: document.getElementById("sMaterial").value,
+        type: document.getElementById("sType").value, quantity: qty, ratePerUnit: rate, totalAmount: Math.round(qty * rate),
+        date: document.getElementById("sDate").value,
+        supplierName: document.getElementById("sSupplier").value.trim(), invoiceNumber: "", notes: ""
+      });
+      Data.saveStockTransactions(txns);
+      App.showToast("Stock entry added");
+      document.getElementById("stockForm").reset();
+      document.getElementById("sDate").value = Data.isoDate(Data.today());
+      renderAll();
+    });
+
+    document.getElementById("txnBody").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-del]");
+      if (!btn) return;
+      Data.saveStockTransactions(Data.getStockTransactions().filter(function (t) { return t.id !== btn.getAttribute("data-del"); }));
+      App.showToast("Entry removed");
+      renderAll();
+    });
+
+    renderAll();
+  }
+</script>
+</body>
+</html>

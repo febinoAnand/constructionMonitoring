@@ -21,7 +21,7 @@
           <h2>Labourers</h2>
           <p>Global workforce master — click a labourer to see their cross-project history.</p>
         </div>
-        <button class="btn btn-primary" id="addBtn" data-admin-only>+ Add Labourer</button>
+        <button class="btn btn-primary" id="addBtn" data-require="labour:create">+ Add Labourer</button>
       </div>
 
       <div class="stat-grid stat-grid-tight" id="statGrid"></div>
@@ -87,7 +87,9 @@
 <script>
   App.requireAuth();
   App.renderShell({ active: "labour", title: "Labourers", subtitle: "Workforce master" });
-  var isAdmin = App.isAdmin();
+  App.guardPermission("labour", "read");
+  var canEdit = App.can("labour", "update");
+  var canDelete = App.can("labour", "delete");
   var searchTerm = "";
 
   var skillSelect = document.getElementById("fSkill");
@@ -131,8 +133,8 @@
             '<button class="action-trigger" data-menu-toggle="' + l.id + '">' + App.svg("dots") + '</button>' +
             '<div class="action-menu" data-menu="' + l.id + '">' +
               '<button data-view="' + l.id + '">' + App.svg("arrowRight") + ' View profile</button>' +
-              (isAdmin ? '<button data-edit="' + l.id + '">' + App.svg("edit") + ' Edit</button>' +
-                '<button class="danger" data-delete="' + l.id + '">' + App.svg("trash") + ' Delete</button>' : '') +
+              (canEdit ? '<button data-edit="' + l.id + '">' + App.svg("edit") + ' Edit</button>' : '') +
+              (canDelete ? '<button class="danger" data-delete="' + l.id + '">' + App.svg("trash") + ' Delete</button>' : '') +
             '</div>' +
           '</div>' +
         '</td>' +

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Overview</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2 id="projName">Loading…</h2>
+          <p id="projMeta"></p>
+        </div>
+        <a class="btn btn-outline" href="projects.html" data-require="projects:update">Manage Project</a>
+      </div>
+
+      <div id="tabsMount"></div>
+
+      <div class="panel-grid">
+        <div class="panel">
+          <div class="panel-header"><h3>Progress</h3></div>
+          <div class="progress-ring-wrap" id="progressRing"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header"><h3>Cost Summary</h3></div>
+          <div class="view-detail-grid" id="costSummary"></div>
+        </div>
+      </div>
+
+      <div class="detail-grid" style="margin-top:20px">
+        <div class="detail-card">
+          <div class="detail-card-header" id="infoCardHeader">Project Info</div>
+          <div class="detail-rows" id="infoRows"></div>
+        </div>
+
+        <div class="detail-card">
+          <div class="detail-card-header" id="activityCardHeader">Recent Activity</div>
+          <div id="recentActivity" style="padding:18px 20px"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  var projectId = new URLSearchParams(window.location.search).get("id");
+  var project = Data.getProjects().find(function (p) { return p.id === projectId; });
+
+  App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: project ? project.code : "" });
+
+  if (!project || !App.guardProjectAccess(projectId)) {
+    document.getElementById("projName").textContent = project ? "Access restricted" : "Project not found";
+  } else {
+    document.getElementById("tabsMount").innerHTML = App.projectTabsHtml(projectId, "overview");
+    document.getElementById("infoCardHeader").innerHTML = '<span class="card-header-icon">' + App.svg("fileText") + '</span>Project Info';
+    document.getElementById("activityCardHeader").innerHTML = '<span class="card-header-icon">' + App.svg("clock") + '</span>Recent Activity';
+
+    var statusLabel = { planning: "Planning", active: "Active", on_hold: "On Hold", completed: "Completed", cancelled: "Cancelled" }[project.status] || project.status;
+
+    document.getElementById("projName").textContent = project.name;
+    document.getElementById("projMeta").textContent = project.code + " · " + (project.clientName || "No client set") + " · " + statusLabel;
+
+    var est = Business.estimateCompletion(project);
+    var ringEl = document.getElementById("progressRing");
+    var ringSvgHost = document.createElement("div");
+    Charts.renderProgressRing(ringSvgHost, est.percentComplete);
+    ringEl.innerHTML = ringSvgHost.innerHTML +
+      '<div class="progress-ring-meta">' +
+        '<strong>' + est.percentComplete + '% complete</strong>' +
+        '<span>' + (est.hasData ? "Est. finish: " + Data.displayDate(est.estimatedDate) : "No progress recorded yet") + '</span>' +
+        (est.atRisk ? '<span class="badge badge-danger" style="margin-top:6px">At risk of missing target</span>' : (est.hasData ? '<span class="badge badge-success" style="margin-top:6px">On track</span>' : '')) +
+      '</div>';
+
+    var cost = Business.getProjectCost(projectId);
+    document.getElementById("costSummary").innerHTML =
+      '<div class="view-detail-item"><span>Materials Purchased</span><strong>₹' + Charts.fmtCompact(cost.stockCost) + '</strong></div>' +
+      '<div class="view-detail-item"><span>Wages Paid</span><strong>₹' + Charts.fmtCompact(cost.wagesPaid) + '</strong></div>' +
+      '<div class="view-detail-item"><span>Other Expenses</span><strong>₹' + Charts.fmtCompact(cost.otherExpenses) + '</strong></div>' +
+      '<div class="view-detail-item"><span>Total Cash Spent</span><strong>₹' + Charts.fmtCompact(cost.totalCashSpent) + '</strong></div>' +
+      '<div class="view-detail-item"><span>Wages Owed (accrued)</span><strong>₹' + Charts.fmtCompact(cost.wagesOwed) + '</strong></div>' +
+      '<div class="view-detail-item"><span>Budget</span><strong>₹' + Charts.fmtCompact(project.budget || 0) + '</strong></div>';
+
+    var linkedCustomer = project.customerId ? Data.getCustomers().find(function (c) { return c.id === project.customerId; }) : null;
+    var clientDisplay = linkedCustomer
+      ? '<a href="customer-detail.html?id=' + linkedCustomer.id + '">' + linkedCustomer.name + ' &rarr; view ledger</a>'
+      : (project.clientName || "—");
+
+    document.getElementById("infoRows").innerHTML =
+      row("Client", clientDisplay) +
+      row("Address", project.address || "—") +
+      row("Start Date", Data.displayDate(project.startDate)) +
+      row("Target End Date", project.targetEndDate ? Data.displayDate(project.targetEndDate) : "—") +
+      row("Status", statusLabel) +
+      row("Description", project.description || "—");
+
+    function row(label, value) {
+      return '<div class="detail-row"><span class="detail-label">' + label + '</span><span class="detail-value">' + value + '</span></div>';
+    }
+
+    var activity = []
+      .concat(Data.getWorkReports().filter(function (r) { return r.projectId === projectId; }).map(function (r) { return { date: r.date, text: r.description, kind: "Report" }; }))
+      .concat(Data.getStockTransactions().filter(function (r) { return r.projectId === projectId; }).map(function (r) {
+        var mat = Data.getMaterials().find(function (m) { return m.id === r.materialId; });
+        return { date: r.date, text: (r.type === "inward" ? "Received " : "Issued ") + r.quantity + " " + (mat ? mat.unit : "") + " of " + (mat ? mat.name : "material"), kind: "Stock" };
+      }))
+      .concat(Data.getExpenses().filter(function (r) { return r.projectId === projectId; }).map(function (r) { return { date: r.date, text: r.description + " (₹" + r.amount + ")", kind: "Expense" }; }))
+      .sort(function (a, b) { return a.date < b.date ? 1 : -1; })
+      .slice(0, 8);
+
+    var activityEl = document.getElementById("recentActivity");
+    if (!activity.length) {
+      activityEl.innerHTML = '<div class="empty-state compact">' + App.svg("clock") + '<p>No activity recorded yet.</p></div>';
+    } else {
+      activityEl.innerHTML = '<div class="activity-list">' + activity.map(function (a) {
+        return '<div class="activity-item"><div class="activity-dot"></div><div><p><span class="chip chip-slate" style="margin-right:6px">' + a.kind + '</span>' + a.text + '</p><span>' + Data.displayDate(a.date) + '</span></div></div>';
+      }).join("") + '</div>';
+    }
+  }
+</script>
+</body>
+</html>

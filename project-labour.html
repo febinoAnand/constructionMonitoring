@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Labour</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div><h2 id="projName">Loading…</h2><p id="projMeta"></p></div>
+      </div>
+
+      <div id="tabsMount"></div>
+      <div id="pageBody"></div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="payModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Record Wage Payment</h3><p>Advance or settlement payment to a labourer.</p></div>
+      <button class="modal-close" id="closePayModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="payForm">
+        <div class="field-grid">
+          <div class="field full">
+            <label>Labourer <span class="req">*</span></label>
+            <div class="combo-wrap" id="payComboWrap">
+              <input type="text" id="payLabInput" placeholder="Search labourer...">
+              <div class="combo-panel" id="payComboPanel"></div>
+              <input type="hidden" id="payLabId">
+            </div>
+          </div>
+          <div class="field"><label>Type</label>
+            <select id="payType"><option value="advance">Advance</option><option value="payment">Payment (settlement)</option></select>
+          </div>
+          <div class="field"><label>Amount (₹) <span class="req">*</span></label><input type="number" id="payAmount" min="0" required></div>
+          <div class="field"><label>Date</label><input type="date" id="payDate"></div>
+          <div class="field full"><label>Notes</label><input type="text" id="payNotes"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelPayModal">Cancel</button>
+      <button class="btn btn-primary" id="savePayBtn">Save Payment</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  var projectId = new URLSearchParams(window.location.search).get("id");
+  var project = Data.getProjects().find(function (p) { return p.id === projectId; });
+  App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: "Labour & attendance" });
+
+  if (!project || !App.guardProjectAccess(projectId)) {
+    document.getElementById("projName").textContent = project ? "Access restricted" : "Project not found";
+  } else {
+    document.getElementById("projName").textContent = project.name;
+    document.getElementById("projMeta").textContent = project.code;
+    document.getElementById("tabsMount").innerHTML = App.projectTabsHtml(projectId, "labour");
+
+    var canCreate = App.can("labour", "create");
+    var canDelete = App.can("labour", "delete");
+
+    document.getElementById("pageBody").innerHTML =
+      (canCreate ?
+      '<div class="panel full-panel">' +
+        '<div class="panel-header"><h3>Mark Attendance</h3></div>' +
+        '<form class="inline-add-form" id="attForm">' +
+          '<div class="field" style="flex:2;min-width:220px">' +
+            '<label>Labourer</label>' +
+            '<div class="combo-wrap" id="attComboWrap">' +
+              '<input type="text" id="attLabInput" placeholder="Search labourer...">' +
+              '<div class="combo-panel" id="attComboPanel"></div>' +
+              '<input type="hidden" id="attLabId">' +
+            '</div>' +
+          '</div>' +
+          '<div class="field"><label>Date</label><input type="date" id="attDate"></div>' +
+          '<div class="field"><label>Days Worked</label><select id="attDays"><option value="1">Full day (1.0)</option><option value="0.5">Half day (0.5)</option><option value="1.5">Overtime (1.5)</option></select></div>' +
+          '<button type="submit" class="btn btn-primary">+ Mark Present</button>' +
+        '</form>' +
+      '</div>' : '') +
+      '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
+      '<div class="panel-grid">' +
+        '<div class="panel">' +
+          '<div class="panel-header"><h3>Attendance History</h3><span class="panel-tag" id="attCount"></span></div>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Labourer</th><th>Days</th><th>Amount</th>' + (canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="attBody"></tbody></table></div>' +
+        '</div>' +
+        '<div class="panel">' +
+          '<div class="panel-header"><h3>Wage Payments</h3>' + (canCreate ? '<button class="btn btn-outline" id="addPayBtn" style="padding:7px 14px;font-size:12.5px">+ Record Payment</button>' : '') + '</div>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Labourer</th><th>Type</th><th>Amount</th></tr></thead><tbody id="payBody"></tbody></table></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="panel full-panel" style="margin-top:20px">' +
+        '<div class="panel-header"><h3>Wage Summary by Labourer</h3></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Labourer</th><th>Skill</th><th>Days Worked</th><th>Earned</th><th>Paid</th><th>Owed</th></tr></thead><tbody id="summaryBody"></tbody></table></div>' +
+      '</div>';
+
+    if (document.getElementById("attDate")) document.getElementById("attDate").value = Data.isoDate(Data.today());
+    document.getElementById("payDate").value = Data.isoDate(Data.today());
+
+    var activeLabourers = Data.getLabourers().filter(function (l) { return l.isActive; });
+
+    function setupCombo(inputId, panelId, wrapId, hiddenId) {
+      var input = document.getElementById(inputId);
+      var panel = document.getElementById(panelId);
+      var wrap = document.getElementById(wrapId);
+      var hidden = document.getElementById(hiddenId);
+      if (!input || !panel || !wrap || !hidden) return;
+      App.initCombobox({
+        wrap: wrap, input: input, panel: panel, items: activeLabourers,
+        getInitial: function (l) { return l.name.charAt(0); },
+        getLabel: function (l) { return l.name; },
+        getSub: function (l) { return l.skill + " · ₹" + l.defaultDailyWage + "/day"; },
+        matches: function (l, term) { return !term || l.name.toLowerCase().indexOf(term) !== -1 || l.skill.toLowerCase().indexOf(term) !== -1; },
+        onSelect: function (l) { input.value = l.name; hidden.value = l.id; }
+      });
+      input.addEventListener("input", function () { hidden.value = ""; });
+    }
+    setupCombo("attLabInput", "attComboPanel", "attComboWrap", "attLabId");
+    setupCombo("payLabInput", "payComboPanel", "payComboWrap", "payLabId");
+
+    function renderStats() {
+      var attendance = Data.getAttendance().filter(function (a) { return a.projectId === projectId; });
+      var uniqueLabourers = new Set(attendance.map(function (a) { return a.labourerId; })).size;
+      var wagesOwed = Business.getWagesDueTotal(projectId);
+      var wagesPaid = Data.getWagePayments().filter(function (p) { return p.projectId === projectId; }).reduce(function (s, p) { return s + p.amount; }, 0);
+      document.getElementById("statGrid").innerHTML =
+        '<div class="stat-card"><div class="stat-icon icon-amber">' + App.svg("people") + '</div><div class="stat-value">' + uniqueLabourers + '</div><div class="stat-label">Labourers worked here</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("calendar") + '</div><div class="stat-value">' + attendance.length + '</div><div class="stat-label">Attendance entries</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("coins") + '</div><div class="stat-value">₹' + Charts.fmtCompact(wagesPaid) + '</div><div class="stat-label">Wages paid</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(wagesOwed) + '</div><div class="stat-label">Wages owed</div></div>';
+    }
+
+    function renderAttendance() {
+      var attendance = Data.getAttendance().filter(function (a) { return a.projectId === projectId; })
+        .sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 40);
+      document.getElementById("attCount").textContent = attendance.length + " shown";
+      var body = document.getElementById("attBody");
+      if (!attendance.length) {
+        body.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("calendar") + '<p>No attendance marked yet.</p></div></td></tr>';
+        return;
+      }
+      body.innerHTML = attendance.map(function (a) {
+        var lab = Data.getLabourers().find(function (l) { return l.id === a.labourerId; });
+        return '<tr>' +
+          '<td>' + Data.displayDate(a.date) + '</td>' +
+          '<td>' + (lab ? lab.name : "—") + '</td>' +
+          '<td>' + a.daysWorked + '</td>' +
+          '<td>₹' + Math.round(a.daysWorked * a.wageRate) + '</td>' +
+          (canDelete ? '<td><button class="action-trigger" data-del-att="' + a.id + '">' + App.svg("trash") + '</button></td>' : '') +
+        '</tr>';
+      }).join("");
+    }
+
+    function renderPayments() {
+      var payments = Data.getWagePayments().filter(function (p) { return p.projectId === projectId; })
+        .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      var body = document.getElementById("payBody");
+      if (!payments.length) {
+        body.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("coins") + '<p>No payments recorded yet.</p></div></td></tr>';
+        return;
+      }
+      body.innerHTML = payments.map(function (p) {
+        var lab = Data.getLabourers().find(function (l) { return l.id === p.labourerId; });
+        return '<tr>' +
+          '<td>' + Data.displayDate(p.date) + '</td>' +
+          '<td>' + (lab ? lab.name : "—") + '</td>' +
+          '<td><span class="chip ' + (p.type === "advance" ? "chip-amber" : "chip-green") + '">' + (p.type === "advance" ? "Advance" : "Payment") + '</span></td>' +
+          '<td class="total-amount">₹' + p.amount + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    function renderSummary() {
+      var attendance = Data.getAttendance().filter(function (a) { return a.projectId === projectId; });
+      var labIds = Array.from(new Set(attendance.map(function (a) { return a.labourerId; })));
+      var body = document.getElementById("summaryBody");
+      if (!labIds.length) {
+        body.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("people") + '<p>No labourers have worked on this project yet.</p></div></td></tr>';
+        return;
+      }
+      body.innerHTML = labIds.map(function (id) {
+        var lab = Data.getLabourers().find(function (l) { return l.id === id; });
+        var sum = Business.getWageSummary(id, { projectId: projectId });
+        return '<tr>' +
+          '<td>' + (lab ? lab.name : "—") + '</td>' +
+          '<td><span class="chip chip-amber">' + (lab ? lab.skill : "") + '</span></td>' +
+          '<td>' + sum.daysWorked + '</td>' +
+          '<td>₹' + Math.round(sum.earned) + '</td>' +
+          '<td>₹' + Math.round(sum.paid) + '</td>' +
+          '<td class="total-amount">₹' + Math.round(sum.owed) + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    function renderAll() { renderStats(); renderAttendance(); renderPayments(); renderSummary(); }
+
+    var attFormEl = document.getElementById("attForm");
+    if (attFormEl) attFormEl.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var labId = document.getElementById("attLabId").value;
+      if (!labId) { App.showToast("Pick a labourer from the list", true); return; }
+      var date = document.getElementById("attDate").value;
+      var days = Number(document.getElementById("attDays").value);
+      var result = Data.addAttendance({ labourerId: labId, projectId: projectId, date: date, daysWorked: days, status: "present", notes: "", markedByUserId: App.getCurrentUser().id });
+      if (!result.ok) { App.showToast(result.error, true); return; }
+      App.showToast("Attendance marked");
+      document.getElementById("attLabInput").value = "";
+      document.getElementById("attLabId").value = "";
+      renderAll();
+    });
+
+    document.getElementById("attBody").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-del-att]");
+      if (!btn) return;
+      Data.saveAttendance(Data.getAttendance().filter(function (a) { return a.id !== btn.getAttribute("data-del-att"); }));
+      App.showToast("Attendance entry removed");
+      renderAll();
+    });
+
+    var payModal = document.getElementById("payModal");
+    var addPayBtnEl = document.getElementById("addPayBtn");
+    if (addPayBtnEl) addPayBtnEl.addEventListener("click", function () { payModal.classList.add("show"); });
+    document.getElementById("closePayModal").addEventListener("click", function () { payModal.classList.remove("show"); });
+    document.getElementById("cancelPayModal").addEventListener("click", function () { payModal.classList.remove("show"); });
+    payModal.addEventListener("click", function (e) { if (e.target === payModal) payModal.classList.remove("show"); });
+
+    document.getElementById("savePayBtn").addEventListener("click", function () {
+      var labId = document.getElementById("payLabId").value;
+      var amount = Number(document.getElementById("payAmount").value);
+      if (!labId || !amount) { App.showToast("Pick a labourer and enter an amount", true); return; }
+      var payments = Data.getWagePayments();
+      payments.push({
+        id: Data.uid("wp"), labourerId: labId, projectId: projectId,
+        amount: amount, type: document.getElementById("payType").value,
+        date: document.getElementById("payDate").value, notes: document.getElementById("payNotes").value.trim()
+      });
+      Data.saveWagePayments(payments);
+      App.showToast("Payment recorded");
+      document.getElementById("payForm").reset();
+      document.getElementById("payLabId").value = "";
+      document.getElementById("payDate").value = Data.isoDate(Data.today());
+      payModal.classList.remove("show");
+      renderAll();
+    });
+
+    renderAll();
+  }
+</script>
+</body>
+</html>

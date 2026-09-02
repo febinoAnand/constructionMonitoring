@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Tasks</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div><h2 id="projName">Loading…</h2><p id="projMeta"></p></div>
+      </div>
+
+      <div id="tabsMount"></div>
+      <div id="pageBody"></div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  var projectId = new URLSearchParams(window.location.search).get("id");
+  var project = Data.getProjects().find(function (p) { return p.id === projectId; });
+  App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: "Tasks & today's progress" });
+
+  var STATUS_META = {
+    todo: { label: "To Do", cls: "col-todo" },
+    in_progress: { label: "In Progress", cls: "col-in_progress" },
+    done: { label: "Done", cls: "col-done" }
+  };
+
+  if (!project || !App.guardProjectAccess(projectId)) {
+    document.getElementById("projName").textContent = project ? "Access restricted" : "Project not found";
+  } else {
+    document.getElementById("projName").textContent = project.name;
+    document.getElementById("projMeta").textContent = project.code;
+    document.getElementById("tabsMount").innerHTML = App.projectTabsHtml(projectId, "tasks");
+
+    var canCreate = App.can("progress", "create");
+    var canUpdate = App.can("progress", "update");
+    var canDelete = App.can("progress", "delete");
+
+    document.getElementById("pageBody").innerHTML =
+      (canCreate ?
+        '<div class="panel full-panel">' +
+          '<div class="panel-header"><h3>Add Task</h3></div>' +
+          '<form class="inline-add-form" id="taskForm">' +
+            '<div class="field" style="flex:2;min-width:220px"><label>Task</label><input type="text" id="fTitle" placeholder="e.g. Level flooring in unit 4B" required></div>' +
+            '<div class="field"><label>Assignee</label><input type="text" id="fAssignee" placeholder="Labourer / team"></div>' +
+            '<div class="field"><label>Date</label><input type="date" id="fDate"></div>' +
+            '<button type="submit" class="btn btn-primary">+ Add to To Do</button>' +
+          '</form>' +
+        '</div>' : '') +
+      '<div class="kanban-board" id="kanbanBoard"></div>' +
+      '<div class="panel full-panel" style="margin-top:20px">' +
+        '<div class="panel-header"><h3>All Tasks — Status Overview</h3><span class="panel-tag" id="taskCount"></span></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Task</th><th>Assignee</th><th>Date</th><th>Status</th>' + (canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="taskTableBody"></tbody></table></div>' +
+      '</div>';
+
+    var fDateEl = document.getElementById("fDate");
+    if (fDateEl) fDateEl.value = Data.isoDate(Data.today());
+
+    function statusPillClass(s) { return s === "done" ? "delivered" : s === "in_progress" ? "confirmed" : "pending"; }
+
+    function renderKanban() {
+      var tasks = Data.getTasks().filter(function (t) { return t.projectId === projectId; });
+      var board = document.getElementById("kanbanBoard");
+      board.innerHTML = Object.keys(STATUS_META).map(function (statusKey) {
+        var meta = STATUS_META[statusKey];
+        var colTasks = tasks.filter(function (t) { return t.status === statusKey; });
+        var cardsHtml = colTasks.length ? colTasks.map(function (t) { return taskCardHtml(t, statusKey); }).join("") : '<div class="kanban-empty">No tasks here</div>';
+        return '<div class="kanban-column ' + meta.cls + '">' +
+          '<div class="kanban-column-header"><span>' + meta.label + '</span><span class="kanban-count">' + colTasks.length + '</span></div>' +
+          cardsHtml +
+        '</div>';
+      }).join("");
+    }
+
+    function taskCardHtml(t, statusKey) {
+      var keys = Object.keys(STATUS_META);
+      var idx = keys.indexOf(statusKey);
+      var prevKey = keys[idx - 1];
+      var nextKey = keys[idx + 1];
+      var actions = "";
+      if (canUpdate) {
+        actions += '<div class="kanban-card-actions">';
+        actions += prevKey ? '<button class="kanban-move-btn" data-move="' + t.id + '" data-to="' + prevKey + '">' + App.svg("arrowRight") + ' Back</button>' : '<span style="flex:1"></span>';
+        actions += nextKey ? '<button class="kanban-move-btn" data-move="' + t.id + '" data-to="' + nextKey + '">Next ' + App.svg("arrowRight") + '</button>' : '<span style="flex:1"></span>';
+        if (canDelete) actions += '<button class="kanban-move-btn del" data-del="' + t.id + '">' + App.svg("trash") + '</button>';
+        actions += '</div>';
+      }
+      return '<div class="kanban-card">' +
+        '<div class="kanban-card-title">' + t.title + '</div>' +
+        '<div class="kanban-card-meta"><span class="kanban-card-assignee">' + App.svg("people") + ' ' + (t.assignee || "Unassigned") + '</span><span>' + Data.displayDate(t.date) + '</span></div>' +
+        actions +
+      '</div>';
+    }
+
+    function renderTable() {
+      var tasks = Data.getTasks().filter(function (t) { return t.projectId === projectId; })
+        .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      document.getElementById("taskCount").textContent = tasks.length + " task(s)";
+      var body = document.getElementById("taskTableBody");
+      if (!tasks.length) {
+        body.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("columns") + '<p>No tasks yet.</p></div></td></tr>';
+        return;
+      }
+      body.innerHTML = tasks.map(function (t) {
+        return '<tr>' +
+          '<td><strong>' + t.title + '</strong></td>' +
+          '<td>' + (t.assignee || "—") + '</td>' +
+          '<td>' + Data.displayDate(t.date) + '</td>' +
+          '<td><span class="status-pill ' + statusPillClass(t.status) + '">' + STATUS_META[t.status].label + '</span></td>' +
+          (canDelete ? '<td><button class="action-trigger" data-del="' + t.id + '">' + App.svg("trash") + '</button></td>' : '') +
+        '</tr>';
+      }).join("");
+    }
+
+    function renderAll() { renderKanban(); renderTable(); }
+
+    document.getElementById("pageBody").addEventListener("click", function (e) {
+      var move = e.target.closest("[data-move]");
+      if (move) {
+        var tasks = Data.getTasks();
+        var task = tasks.find(function (t) { return t.id === move.getAttribute("data-move"); });
+        if (task) { task.status = move.getAttribute("data-to"); Data.saveTasks(tasks); renderAll(); }
+        return;
+      }
+      var del = e.target.closest("[data-del]");
+      if (del) {
+        Data.saveTasks(Data.getTasks().filter(function (t) { return t.id !== del.getAttribute("data-del"); }));
+        App.showToast("Task removed");
+        renderAll();
+        return;
+      }
+    });
+
+    var taskForm = document.getElementById("taskForm");
+    if (taskForm) {
+      taskForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var title = document.getElementById("fTitle").value.trim();
+        if (!title) { App.showToast("Enter a task title", true); return; }
+        var tasks = Data.getTasks();
+        tasks.push({
+          id: Data.uid("tk"), projectId: projectId, title: title,
+          assignee: document.getElementById("fAssignee").value.trim(),
+          status: "todo", date: document.getElementById("fDate").value, notes: ""
+        });
+        Data.saveTasks(tasks);
+        App.showToast("Task added");
+        taskForm.reset();
+        document.getElementById("fDate").value = Data.isoDate(Data.today());
+        renderAll();
+      });
+    }
+
+    renderAll();
+  }
+</script>
+</body>
+</html>

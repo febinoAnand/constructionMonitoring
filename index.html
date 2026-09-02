@@ -44,7 +44,7 @@
       <button type="submit" class="btn btn-primary submit-btn">Sign In</button>
     </form>
 
-    <div class="demo-hint">This is a UI-only demo — pick <b>Vijay Kumar</b> for Admin access to every project, or a Supervisor to see only their assigned project(s).</div>
+    <div class="demo-hint">This is a UI-only demo with configurable roles — pick <b>Vijay Kumar</b> (Administrator) for full access, a Supervisor to see only assigned project(s), or the Accountant to see billing/expenses across every site. Manage roles under Roles &amp; Permissions.</div>
   </div>
 </div>
 
@@ -54,9 +54,10 @@
   (function () {
     var select = document.getElementById("userSelect");
     var users = Data.getUsers();
+    var roles = Data.getRoles();
     select.innerHTML = users.map(function (u) {
-      var roleLabel = u.role === "admin" ? "Admin" : "Supervisor";
-      return '<option value="' + u.id + '">' + u.name + ' — ' + roleLabel + '</option>';
+      var role = roles.find(function (r) { return r.id === u.roleId; });
+      return '<option value="' + u.id + '">' + u.name + ' — ' + (role ? role.name : "No role") + '</option>';
     }).join("");
 
     document.getElementById("loginForm").addEventListener("submit", function (e) {

@@ -21,7 +21,7 @@
           <h2>Projects</h2>
           <p>All construction sites you manage or are assigned to.</p>
         </div>
-        <button class="btn btn-primary" id="addProjectBtn" data-admin-only>+ New Project</button>
+        <button class="btn btn-primary" id="addProjectBtn" data-require="projects:create">+ New Project</button>
       </div>
 
       <div class="table-card">
@@ -69,7 +69,8 @@
               <option value="cancelled">Cancelled</option>
             </select>
           </div>
-          <div class="field full"><label>Client Name</label><input type="text" id="fClient"></div>
+          <div class="field full"><label>Customer</label><select id="fCustomer"><option value="">— No customer linked —</option></select></div>
+          <div class="field full"><label>Client Name (display)</label><input type="text" id="fClient" placeholder="Auto-fills from customer, or type manually"></div>
           <div class="field full"><label>Address</label><input type="text" id="fAddress"></div>
           <div class="field"><label>Start Date</label><input type="date" id="fStart"></div>
           <div class="field"><label>Target End Date</label><input type="date" id="fEnd"></div>
@@ -92,9 +93,22 @@
 <script>
   App.requireAuth();
   App.renderShell({ active: "projects", title: "Projects", subtitle: "All construction sites" });
+  App.guardPermission("projects", "read");
 
-  var isAdmin = App.isAdmin();
+  var canEdit = App.can("projects", "update");
+  var canDelete = App.can("projects", "delete");
   var searchTerm = "";
+
+  var customerSelect = document.getElementById("fCustomer");
+  Data.getCustomers().forEach(function (c) {
+    var opt = document.createElement("option");
+    opt.value = c.id; opt.textContent = c.name;
+    customerSelect.appendChild(opt);
+  });
+  customerSelect.addEventListener("change", function () {
+    var c = Data.getCustomers().find(function (x) { return x.id === customerSelect.value; });
+    if (c) document.getElementById("fClient").value = c.name;
+  });
 
   function statusLabel(s) {
     return { planning: "Planning", active: "Active", on_hold: "On Hold", completed: "Completed", cancelled: "Cancelled" }[s] || s;
@@ -130,8 +144,8 @@
             '<button class="action-trigger" data-menu-toggle="' + p.id + '">' + App.svg("dots") + '</button>' +
             '<div class="action-menu" data-menu="' + p.id + '">' +
               '<button data-view="' + p.id + '">' + App.svg("arrowRight") + ' Open</button>' +
-              (isAdmin ? '<button data-edit="' + p.id + '">' + App.svg("edit") + ' Edit</button>' +
-                '<button class="danger" data-delete="' + p.id + '">' + App.svg("trash") + ' Delete</button>' : '') +
+              (canEdit ? '<button data-edit="' + p.id + '">' + App.svg("edit") + ' Edit</button>' : '') +
+              (canDelete ? '<button class="danger" data-delete="' + p.id + '">' + App.svg("trash") + ' Delete</button>' : '') +
             '</div>' +
           '</div>' +
         '</td>' +
@@ -182,6 +196,7 @@
       document.getElementById("fCode").value = p.code;
       document.getElementById("fStatus").value = p.status;
       document.getElementById("fClient").value = p.clientName || "";
+      document.getElementById("fCustomer").value = p.customerId || "";
       document.getElementById("fAddress").value = p.address || "";
       document.getElementById("fStart").value = p.startDate || "";
       document.getElementById("fEnd").value = p.targetEndDate || "";
@@ -214,6 +229,7 @@
       code: code,
       status: document.getElementById("fStatus").value,
       clientName: document.getElementById("fClient").value.trim(),
+      customerId: document.getElementById("fCustomer").value || null,
       address: document.getElementById("fAddress").value.trim(),
       startDate: document.getElementById("fStart").value,
       targetEndDate: document.getElementById("fEnd").value,

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Users</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Users</h2>
+          <p>Manage who can sign in, which role they hold, and which projects they can see.</p>
+        </div>
+        <button class="btn btn-primary" id="addBtn">+ Add User</button>
+      </div>
+
+      <div class="table-card">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>User</th><th>Role</th><th>Phone</th><th>Assigned Projects</th><th></th></tr></thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="userModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3 id="modalTitle">Add User</h3><p>This is a UI-only demo — no password/email verification.</p></div>
+      <button class="modal-close" id="closeModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="userForm">
+        <input type="hidden" id="editId">
+        <div class="field-grid">
+          <div class="field full"><label>Full Name <span class="req">*</span></label><input type="text" id="fName" required></div>
+          <div class="field"><label>Role</label><select id="fRole"></select></div>
+          <div class="field"><label>Phone</label><input type="text" id="fPhone"></div>
+          <div class="field full" id="assignWrap">
+            <label>Assigned Projects (only used if the role isn't "sees all projects")</label>
+            <div id="assignCheckboxes" style="display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelModal">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save User</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  App.renderShell({ active: "users", title: "Users", subtitle: "Access management" });
+
+  if (!App.guardPermission("users", "read")) {
+    document.querySelector(".content").style.display = "none";
+  } else {
+    var canCreate = App.can("users", "create");
+    var canEdit = App.can("users", "update");
+    var canDelete = App.can("users", "delete");
+    if (!canCreate) document.getElementById("addBtn").style.display = "none";
+
+    var allProjects = Data.getProjects();
+    var roleSelect = document.getElementById("fRole");
+
+    function refreshRoleOptions() {
+      var roles = Data.getRoles();
+      roleSelect.innerHTML = roles.map(function (r) { return '<option value="' + r.id + '">' + r.name + '</option>'; }).join("");
+    }
+
+    function roleName(roleId) {
+      var r = Data.getRoles().find(function (x) { return x.id === roleId; });
+      return r ? r.name : "No role";
+    }
+    function roleAllProjects(roleId) {
+      var r = Data.getRoles().find(function (x) { return x.id === roleId; });
+      return !!(r && r.allProjects);
+    }
+
+    function render() {
+      var users = Data.getUsers();
+      document.getElementById("tableBody").innerHTML = users.map(function (u) {
+        var allProj = roleAllProjects(u.roleId);
+        var assigned = (u.assignedProjectIds || []).map(function (pid) {
+          var p = allProjects.find(function (x) { return x.id === pid; });
+          return p ? '<span class="chip chip-amber">' + p.code + '</span>' : '';
+        }).join(" ");
+        return '<tr>' +
+          '<td><div class="cell-user"><div class="cell-avatar">' + u.name.charAt(0) + '</div><span class="cell-user-name">' + u.name + '</span></div></td>' +
+          '<td><span class="status-pill ' + (allProj ? "confirmed" : "pending") + '">' + roleName(u.roleId) + '</span></td>' +
+          '<td>' + (u.phone || "—") + '</td>' +
+          '<td>' + (allProj ? '<span class="desc-cell">All projects</span>' : (assigned || '<span class="desc-cell">None assigned</span>')) + '</td>' +
+          '<td>' +
+            '<div class="row-actions">' +
+              '<button class="action-trigger" data-menu-toggle="' + u.id + '">' + App.svg("dots") + '</button>' +
+              '<div class="action-menu" data-menu="' + u.id + '">' +
+                (canEdit ? '<button data-edit="' + u.id + '">' + App.svg("edit") + ' Edit</button>' : "") +
+                (canDelete ? '<button class="danger" data-delete="' + u.id + '">' + App.svg("trash") + ' Delete</button>' : "") +
+                (!canEdit && !canDelete ? '<button disabled>No actions</button>' : "") +
+              '</div>' +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    var openMenuId = null;
+    document.addEventListener("click", function (e) {
+      var toggle = e.target.closest("[data-menu-toggle]");
+      document.querySelectorAll(".action-menu.show").forEach(function (m) { m.classList.remove("show"); });
+      if (toggle) {
+        var id = toggle.getAttribute("data-menu-toggle");
+        openMenuId = id;
+        App.positionActionMenu(id);
+        document.querySelector('[data-menu="' + id + '"]').classList.add("show");
+        return;
+      }
+      var edit = e.target.closest("[data-edit]");
+      if (edit) { openModal(edit.getAttribute("data-edit")); return; }
+      var del = e.target.closest("[data-delete]");
+      if (del) { deleteUser(del.getAttribute("data-delete")); return; }
+    });
+    window.addEventListener("scroll", function () { if (openMenuId) App.positionActionMenu(openMenuId); }, true);
+
+    function deleteUser(id) {
+      if (id === App.getCurrentUser().id) { App.showToast("You can't delete your own logged-in user", true); return; }
+      if (!confirm("Delete this user?")) return;
+      Data.saveUsers(Data.getUsers().filter(function (u) { return u.id !== id; }));
+      App.showToast("User deleted");
+      render();
+    }
+
+    function renderAssignCheckboxes(selected) {
+      document.getElementById("assignCheckboxes").innerHTML = allProjects.map(function (p) {
+        var checked = selected.indexOf(p.id) !== -1 ? "checked" : "";
+        return '<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer">' +
+          '<input type="checkbox" value="' + p.id + '" ' + checked + ' style="width:16px;height:16px">' + p.name + ' <span class="cell-mono">' + p.code + '</span></label>';
+      }).join("");
+    }
+
+    function toggleAssignVisibility() {
+      document.getElementById("assignWrap").style.display = roleAllProjects(roleSelect.value) ? "none" : "";
+    }
+    roleSelect.addEventListener("change", toggleAssignVisibility);
+
+    var modal = document.getElementById("userModal");
+    function openModal(id) {
+      refreshRoleOptions();
+      document.getElementById("userForm").reset();
+      document.getElementById("editId").value = id || "";
+      if (id) {
+        var u = Data.getUsers().find(function (x) { return x.id === id; });
+        document.getElementById("modalTitle").textContent = "Edit User";
+        document.getElementById("fName").value = u.name;
+        roleSelect.value = u.roleId;
+        document.getElementById("fPhone").value = u.phone || "";
+        renderAssignCheckboxes(u.assignedProjectIds || []);
+      } else {
+        document.getElementById("modalTitle").textContent = "Add User";
+        renderAssignCheckboxes([]);
+      }
+      toggleAssignVisibility();
+      modal.classList.add("show");
+    }
+    function closeModal() { modal.classList.remove("show"); }
+
+    document.getElementById("addBtn").addEventListener("click", function () { openModal(null); });
+    document.getElementById("closeModal").addEventListener("click", closeModal);
+    document.getElementById("cancelModal").addEventListener("click", closeModal);
+    modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+    document.getElementById("saveBtn").addEventListener("click", function () {
+      var name = document.getElementById("fName").value.trim();
+      if (!name) { App.showToast("Name is required", true); return; }
+      var id = document.getElementById("editId").value;
+      var roleId = roleSelect.value;
+      var assigned = Array.from(document.querySelectorAll("#assignCheckboxes input:checked")).map(function (c) { return c.value; });
+
+      var record = {
+        id: id || Data.uid("u"),
+        name: name, roleId: roleId,
+        phone: document.getElementById("fPhone").value.trim(),
+        assignedProjectIds: roleAllProjects(roleId) ? [] : assigned
+      };
+
+      var users = Data.getUsers();
+      users = id ? users.map(function (u) { return u.id === id ? record : u; }) : users.concat([record]);
+      Data.saveUsers(users);
+      App.showToast(id ? "User updated" : "User added");
+      closeModal();
+      render();
+    });
+
+    render();
+  }
+</script>
+</body>
+</html>
