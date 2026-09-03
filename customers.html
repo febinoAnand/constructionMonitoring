@@ -36,7 +36,7 @@
         </div>
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>Customer</th><th>Contact</th><th>Projects</th><th>Balance Due</th><th></th></tr></thead>
+            <thead><tr><th>Customer</th><th>Contact</th><th>Projects</th><th>Total Billed</th><th>Paid</th><th>Balance Due</th><th></th></tr></thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
@@ -115,7 +115,7 @@
       var projects = Data.getProjects();
       var tbody = document.getElementById("tableBody");
       if (!customers.length) {
-        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("briefcase") + '<p>No customers yet.</p></div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("briefcase") + '<p>No customers yet.</p></div></td></tr>';
         return;
       }
 
@@ -126,12 +126,14 @@
           '<td><a href="customer-detail.html?id=' + c.id + '"><strong>' + c.name + '</strong></a>' + (c.gstin ? '<br><span class="cell-mono">' + c.gstin + '</span>' : '') + '</td>' +
           '<td>' + (c.contactPerson || "—") + '<br><span class="desc-cell">' + (c.phone || "") + '</span></td>' +
           '<td>' + (linkedProjects.map(function (p) { return '<span class="chip chip-blue">' + p.code + '</span>'; }).join(" ") || '<span class="desc-cell">None linked</span>') + '</td>' +
+          '<td class="total-amount">₹' + Charts.fmtCompact(l.invoiced) + '</td>' +
+          '<td class="total-amount">₹' + Charts.fmtCompact(l.received) + '</td>' +
           '<td class="total-amount">₹' + Charts.fmtCompact(l.balanceDue) + '</td>' +
           '<td>' +
             '<div class="row-actions">' +
               '<button class="action-trigger" data-menu-toggle="' + c.id + '">' + App.svg("dots") + '</button>' +
               '<div class="action-menu" data-menu="' + c.id + '">' +
-                '<button data-view="' + c.id + '">' + App.svg("arrowRight") + ' View ledger</button>' +
+                '<button data-view="' + c.id + '">' + App.svg("arrowRight") + ' View ledger (accounts)</button>' +
                 (canEdit ? '<button data-edit="' + c.id + '">' + App.svg("edit") + ' Edit</button>' : "") +
                 (canDelete ? '<button class="danger" data-delete="' + c.id + '">' + App.svg("trash") + ' Delete</button>' : "") +
               '</div>' +

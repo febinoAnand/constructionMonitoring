@@ -27,7 +27,7 @@
       <div class="table-card">
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>User</th><th>Role</th><th>Phone</th><th>Assigned Projects</th><th></th></tr></thead>
+            <thead><tr><th>User</th><th>Role</th><th>Contact</th><th>Assigned Projects</th><th></th></tr></thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
@@ -48,7 +48,9 @@
         <div class="field-grid">
           <div class="field full"><label>Full Name <span class="req">*</span></label><input type="text" id="fName" required></div>
           <div class="field"><label>Role</label><select id="fRole"></select></div>
+          <div class="field"><label>Username</label><input type="text" id="fUsername" placeholder="e.g. ramesh.babu"></div>
           <div class="field"><label>Phone</label><input type="text" id="fPhone"></div>
+          <div class="field"><label>Email</label><input type="email" id="fEmail"></div>
           <div class="field full" id="assignWrap">
             <label>Assigned Projects (only used if the role isn't "sees all projects")</label>
             <div id="assignCheckboxes" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -105,9 +107,9 @@
           return p ? '<span class="chip chip-amber">' + p.code + '</span>' : '';
         }).join(" ");
         return '<tr>' +
-          '<td><div class="cell-user"><div class="cell-avatar">' + u.name.charAt(0) + '</div><span class="cell-user-name">' + u.name + '</span></div></td>' +
+          '<td><div class="cell-user"><div class="cell-avatar">' + u.name.charAt(0) + '</div><span class="cell-user-name">' + u.name + '</span></div>' + (u.username ? '<span class="cell-mono">@' + u.username + '</span>' : '') + '</td>' +
           '<td><span class="status-pill ' + (allProj ? "confirmed" : "pending") + '">' + roleName(u.roleId) + '</span></td>' +
-          '<td>' + (u.phone || "—") + '</td>' +
+          '<td>' + (u.phone || "—") + '<br><span class="desc-cell">' + (u.email || "") + '</span></td>' +
           '<td>' + (allProj ? '<span class="desc-cell">All projects</span>' : (assigned || '<span class="desc-cell">None assigned</span>')) + '</td>' +
           '<td>' +
             '<div class="row-actions">' +
@@ -172,7 +174,9 @@
         document.getElementById("modalTitle").textContent = "Edit User";
         document.getElementById("fName").value = u.name;
         roleSelect.value = u.roleId;
+        document.getElementById("fUsername").value = u.username || "";
         document.getElementById("fPhone").value = u.phone || "";
+        document.getElementById("fEmail").value = u.email || "";
         renderAssignCheckboxes(u.assignedProjectIds || []);
       } else {
         document.getElementById("modalTitle").textContent = "Add User";
@@ -198,7 +202,9 @@
       var record = {
         id: id || Data.uid("u"),
         name: name, roleId: roleId,
+        username: document.getElementById("fUsername").value.trim(),
         phone: document.getElementById("fPhone").value.trim(),
+        email: document.getElementById("fEmail").value.trim(),
         assignedProjectIds: roleAllProjects(roleId) ? [] : assigned
       };
 

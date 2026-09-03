@@ -155,6 +155,46 @@
     return { invoiced: invoiced, received: received, balanceDue: invoiced - received, entries: entries };
   }
 
+  /* Material billing (inward = purchase cost) vs usage (outward = consumed on site),
+     per material, for a single project — feeds the Expenses "Material Costs" panel. */
+  function getMaterialCostBreakdown(projectId) {
+    var materials = window.Data.getMaterials();
+    var txns = window.Data.getStockTransactions().filter(function (t) { return t.projectId === projectId; });
+    var rows = materials.map(function (m) {
+      var matTxns = txns.filter(function (t) { return t.materialId === m.id; });
+      var inward = matTxns.filter(function (t) { return t.type === "inward"; });
+      var outward = matTxns.filter(function (t) { return t.type === "outward"; });
+      var purchasedQty = inward.reduce(function (s, t) { return s + t.quantity; }, 0);
+      var purchaseCost = inward.reduce(function (s, t) { return s + t.totalAmount; }, 0);
+      var usedQty = outward.reduce(function (s, t) { return s + t.quantity; }, 0);
+      var usageCost = outward.reduce(function (s, t) { return s + t.totalAmount; }, 0);
+      return {
+        material: m,
+        purchasedQty: purchasedQty, purchaseCost: purchaseCost,
+        usedQty: usedQty, usageCost: usageCost,
+        balanceQty: purchasedQty - usedQty,
+        hasActivity: matTxns.length > 0
+      };
+    }).filter(function (r) { return r.hasActivity; });
+
+    var totalPurchaseCost = rows.reduce(function (s, r) { return s + r.purchaseCost; }, 0);
+    var totalUsageCost = rows.reduce(function (s, r) { return s + r.usageCost; }, 0);
+    return { rows: rows, totalPurchaseCost: totalPurchaseCost, totalUsageCost: totalUsageCost };
+  }
+
+  /* Kanban columns for a project: To Do and Done are fixed bookends; In Progress
+     is a fixed default middle column; any project-defined extra columns (added
+     from the board) are inserted between In Progress and Done, in the order
+     they were created. */
+  function getProjectStatusColumns(projectId) {
+    var customs = window.Data.getTaskStatusDefs()
+      .filter(function (s) { return s.projectId === projectId; })
+      .sort(function (a, b) { return a.order - b.order; });
+    return [{ key: "todo", label: "To Do", builtin: true }, { key: "in_progress", label: "In Progress", builtin: true }]
+      .concat(customs.map(function (s) { return { key: s.key, label: s.label, builtin: false, id: s.id }; }))
+      .concat([{ key: "done", label: "Done", builtin: true }]);
+  }
+
   function getWagesDueTotal(projectId) {
     var labourers = window.Data.getLabourers();
     var total = 0;
@@ -172,6 +212,8 @@
     estimateCompletion: estimateCompletion,
     getLowStockAlerts: getLowStockAlerts,
     getWagesDueTotal: getWagesDueTotal,
-    getCustomerLedger: getCustomerLedger
+    getCustomerLedger: getCustomerLedger,
+    getMaterialCostBreakdown: getMaterialCostBreakdown,
+    getProjectStatusColumns: getProjectStatusColumns
   };
 })();

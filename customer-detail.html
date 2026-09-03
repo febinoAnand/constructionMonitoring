@@ -61,6 +61,10 @@
             '<div style="padding:18px 20px" id="linkedProjectsBox"></div>' +
           '</div>' +
         '</div>' +
+        '<div class="panel full-panel">' +
+          '<div class="panel-header"><h3>Billing by Project</h3><span class="panel-tag">' + linkedProjects.length + ' project(s)</span></div>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Project</th><th>Invoiced</th><th>Received</th><th>Balance Due</th></tr></thead><tbody id="byProjectBody"></tbody></table></div>' +
+        '</div>' +
         (canAddEntry ?
           '<div class="panel full-panel">' +
             '<div class="panel-header"><h3>Add Ledger Entry</h3></div>' +
@@ -109,6 +113,23 @@
           '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("fileText") + '</div><div class="stat-value">₹' + Charts.fmtCompact(l.invoiced) + '</div><div class="stat-label">Total invoiced</div></div>' +
           '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("coins") + '</div><div class="stat-value">₹' + Charts.fmtCompact(l.received) + '</div><div class="stat-label">Total received</div></div>' +
           '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(l.balanceDue) + '</div><div class="stat-label">Balance due</div></div>';
+
+        var byProjectBody = document.getElementById("byProjectBody");
+        if (!linkedProjects.length) {
+          byProjectBody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("building") + '<p>No projects linked yet.</p></div></td></tr>';
+        } else {
+          byProjectBody.innerHTML = linkedProjects.map(function (p) {
+            var pEntries = l.entries.filter(function (e) { return e.projectId === p.id; });
+            var pInvoiced = pEntries.filter(function (e) { return e.type === "invoice"; }).reduce(function (s, e) { return s + e.amount; }, 0);
+            var pReceived = pEntries.filter(function (e) { return e.type === "receipt"; }).reduce(function (s, e) { return s + e.amount; }, 0);
+            return '<tr>' +
+              '<td><a href="project-overview.html?id=' + p.id + '"><strong>' + p.name + '</strong></a> <span class="cell-mono">' + p.code + '</span></td>' +
+              '<td class="total-amount">₹' + Charts.fmtCompact(pInvoiced) + '</td>' +
+              '<td class="total-amount">₹' + Charts.fmtCompact(pReceived) + '</td>' +
+              '<td class="total-amount">₹' + Charts.fmtCompact(pInvoiced - pReceived) + '</td>' +
+            '</tr>';
+          }).join("");
+        }
 
         var entries = l.entries.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
         document.getElementById("entryCount").textContent = entries.length + " entries";

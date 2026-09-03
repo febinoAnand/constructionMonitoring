@@ -45,6 +45,8 @@
 
     var materials = Data.getMaterials();
     var materialOptions = materials.map(function (m) { return '<option value="' + m.id + '">' + m.name + ' (' + m.unit + ')</option>'; }).join("");
+    var otherProjects = Data.getProjects().filter(function (p) { return p.id !== projectId; });
+    var otherProjectOptions = otherProjects.map(function (p) { return '<option value="' + p.id + '">' + p.name + ' (' + p.code + ')</option>'; }).join("");
     var canCreate = App.can("stock", "create");
     var canDelete = App.can("stock", "delete");
 
@@ -55,10 +57,18 @@
         '<form class="inline-add-form" id="stockForm">' +
           '<div class="field" style="flex:1.4;min-width:180px"><label>Material</label><select id="sMaterial">' + materialOptions + '</select></div>' +
           '<div class="field"><label>Type</label><select id="sType"><option value="inward">Inward (purchase)</option><option value="outward">Outward (used)</option><option value="adjustment">Adjustment</option></select></div>' +
+          '<div class="field" id="sSourceWrap"><label>Source</label><select id="sSource">' +
+            '<option value="purchase">Vendor purchase</option>' +
+            '<option value="godown">Godown (central store)</option>' +
+            '<option value="transfer">Transferred from another project</option>' +
+          '</select></div>' +
           '<div class="field"><label>Quantity</label><input type="number" id="sQty" min="0" step="0.01" required></div>' +
           '<div class="field"><label>Rate / unit (₹)</label><input type="number" id="sRate" min="0"></div>' +
           '<div class="field"><label>Date</label><input type="date" id="sDate"></div>' +
           '<div class="field" style="flex:1.4;min-width:160px" id="sSupplierWrap"><label>Supplier</label><input type="text" id="sSupplier"></div>' +
+          '<div class="field" id="sBillNoWrap"><label>Bill No.</label><input type="text" id="sBillNo" placeholder="e.g. INV-2451"></div>' +
+          '<div class="field" id="sGstWrap"><label>GST (%)</label><input type="number" id="sGst" min="0" step="0.01" value="0"></div>' +
+          '<div class="field" style="flex:1.4;min-width:200px;display:none" id="sSourceProjectWrap"><label>From Project</label><select id="sSourceProject">' + otherProjectOptions + '</select></div>' +
           '<button type="submit" class="btn btn-primary">+ Add Entry</button>' +
         '</form>' +
       '</div>' : '') +
@@ -69,15 +79,25 @@
       '</div>' +
       '<div class="panel full-panel">' +
         '<div class="panel-header"><h3>Transaction History</h3><span class="panel-tag" id="txnCount"></span></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Material</th><th>Type</th><th>Quantity</th><th>Amount</th><th>Supplier / Notes</th>' + (canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="txnBody"></tbody></table></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Bill No.</th><th>Material</th><th>Type</th><th>Source</th><th>Quantity</th><th>Amount</th><th>Supplier / Notes</th>' + (canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="txnBody"></tbody></table></div>' +
       '</div>';
 
     if (document.getElementById("sDate")) document.getElementById("sDate").value = Data.isoDate(Data.today());
 
+    function syncSourceFields() {
+      var isInward = document.getElementById("sType").value === "inward";
+      var isTransfer = isInward && document.getElementById("sSource").value === "transfer";
+      document.getElementById("sSourceWrap").style.display = isInward ? "" : "none";
+      document.getElementById("sSupplierWrap").style.display = isInward && !isTransfer ? "" : "none";
+      document.getElementById("sBillNoWrap").style.display = isInward && !isTransfer ? "" : "none";
+      document.getElementById("sGstWrap").style.display = isInward && !isTransfer ? "" : "none";
+      document.getElementById("sSourceProjectWrap").style.display = isTransfer ? "" : "none";
+    }
     var sTypeEl = document.getElementById("sType");
-    if (sTypeEl) sTypeEl.addEventListener("change", function () {
-      document.getElementById("sSupplierWrap").style.display = this.value === "inward" ? "" : "none";
-    });
+    if (sTypeEl) sTypeEl.addEventListener("change", syncSourceFields);
+    var sSourceEl = document.getElementById("sSource");
+    if (sSourceEl) sSourceEl.addEventListener("change", syncSourceFields);
+    syncSourceFields();
 
     function renderStats() {
       var balances = Business.getAllStockBalances(projectId).filter(function (r) { return r.hasActivity; });
@@ -111,18 +131,32 @@
       document.getElementById("txnCount").textContent = txns.length + " shown";
       var body = document.getElementById("txnBody");
       if (!txns.length) {
-        body.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("truck") + '<p>No stock movements recorded yet.</p></div></td></tr>';
+        body.innerHTML = '<tr><td colspan="9"><div class="empty-state compact">' + App.svg("truck") + '<p>No stock movements recorded yet.</p></div></td></tr>';
         return;
       }
       body.innerHTML = txns.map(function (t) {
         var mat = materials.find(function (m) { return m.id === t.materialId; });
         var typeChip = t.type === "inward" ? '<span class="chip chip-green">Inward</span>' : t.type === "outward" ? '<span class="chip chip-amber">Outward</span>' : '<span class="chip chip-slate">Adjustment</span>';
+        var sourceHtml = "—";
+        if (t.type === "inward") {
+          if (t.source === "transfer") {
+            var srcProj = Data.getProjects().find(function (p) { return p.id === t.sourceProjectId; });
+            sourceHtml = '<span class="chip chip-blue">From ' + (srcProj ? srcProj.name : "another project") + '</span>';
+          } else if (t.source === "godown") {
+            sourceHtml = '<span class="chip chip-slate">Godown</span>';
+          } else {
+            sourceHtml = '<span class="chip chip-slate">Vendor</span>';
+          }
+        }
+        var amountHtml = '₹' + t.totalAmount + (t.gstAmount ? '<br><span class="desc-cell">incl. GST ' + t.gstPercent + '% (₹' + t.gstAmount + ')</span>' : "");
         return '<tr>' +
           '<td>' + Data.displayDate(t.date) + '</td>' +
+          '<td>' + (t.invoiceNumber || "—") + '</td>' +
           '<td>' + (mat ? mat.name : "—") + '</td>' +
           '<td>' + typeChip + '</td>' +
+          '<td>' + sourceHtml + '</td>' +
           '<td>' + t.quantity + ' ' + (mat ? mat.unit : "") + '</td>' +
-          '<td>₹' + t.totalAmount + '</td>' +
+          '<td class="total-amount">' + amountHtml + '</td>' +
           '<td class="desc-cell">' + (t.supplierName || t.notes || "—") + '</td>' +
           (canDelete ? '<td><button class="action-trigger" data-del="' + t.id + '">' + App.svg("trash") + '</button></td>' : '') +
         '</tr>';
@@ -137,17 +171,52 @@
       var qty = Number(document.getElementById("sQty").value);
       if (!qty) { App.showToast("Enter a quantity", true); return; }
       var rate = Number(document.getElementById("sRate").value) || 0;
-      var txns = Data.getStockTransactions();
-      txns.push({
-        id: Data.uid("st"), projectId: projectId, materialId: document.getElementById("sMaterial").value,
-        type: document.getElementById("sType").value, quantity: qty, ratePerUnit: rate, totalAmount: Math.round(qty * rate),
-        date: document.getElementById("sDate").value,
-        supplierName: document.getElementById("sSupplier").value.trim(), invoiceNumber: "", notes: ""
-      });
-      Data.saveStockTransactions(txns);
-      App.showToast("Stock entry added");
+      var type = document.getElementById("sType").value;
+      var materialId = document.getElementById("sMaterial").value;
+      var date = document.getElementById("sDate").value;
+      var isTransfer = type === "inward" && document.getElementById("sSource").value === "transfer";
+
+      if (isTransfer) {
+        var sourceProjectId = document.getElementById("sSourceProject").value;
+        if (!sourceProjectId) { App.showToast("Choose the project to transfer from", true); return; }
+        var sourceProjectName = otherProjects.find(function (p) { return p.id === sourceProjectId; }).name;
+        var transferId = Data.uid("tr");
+        var txns = Data.getStockTransactions();
+        txns.push({
+          id: Data.uid("st"), projectId: projectId, materialId: materialId, type: "inward",
+          quantity: qty, ratePerUnit: rate, totalAmount: Math.round(qty * rate), date: date,
+          supplierName: "", invoiceNumber: "", gstPercent: 0, gstAmount: 0, notes: "Transferred from " + sourceProjectName,
+          source: "transfer", sourceProjectId: sourceProjectId, transferId: transferId
+        });
+        txns.push({
+          id: Data.uid("st"), projectId: sourceProjectId, materialId: materialId, type: "outward",
+          quantity: qty, ratePerUnit: rate, totalAmount: Math.round(qty * rate), date: date,
+          supplierName: "", invoiceNumber: "", gstPercent: 0, gstAmount: 0, notes: "Transferred to " + project.name,
+          source: "transfer", sourceProjectId: projectId, transferId: transferId
+        });
+        Data.saveStockTransactions(txns);
+        App.showToast("Stock transfer recorded");
+      } else {
+        var subtotal = Math.round(qty * rate);
+        var gstPercent = type === "inward" ? (Number(document.getElementById("sGst").value) || 0) : 0;
+        var gstAmount = Math.round(subtotal * gstPercent / 100);
+        var txns2 = Data.getStockTransactions();
+        txns2.push({
+          id: Data.uid("st"), projectId: projectId, materialId: materialId,
+          type: type, quantity: qty, ratePerUnit: rate, totalAmount: subtotal + gstAmount,
+          date: date,
+          supplierName: type === "inward" ? document.getElementById("sSupplier").value.trim() : "",
+          invoiceNumber: type === "inward" ? document.getElementById("sBillNo").value.trim() : "",
+          gstPercent: gstPercent, gstAmount: gstAmount, notes: "",
+          source: type === "inward" ? document.getElementById("sSource").value : ""
+        });
+        Data.saveStockTransactions(txns2);
+        App.showToast("Stock entry added");
+      }
+
       document.getElementById("stockForm").reset();
       document.getElementById("sDate").value = Data.isoDate(Data.today());
+      syncSourceFields();
       renderAll();
     });
 

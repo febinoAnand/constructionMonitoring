@@ -109,10 +109,31 @@
     container.innerHTML = svg;
   }
 
+  /* Linear (horizontal) progress bar — same use-case as renderProgressRing,
+     preferred wherever a compact/list-friendly indicator is needed. */
+  function renderProgressBar(container, percent, opts) {
+    opts = opts || {};
+    var clamped = Math.max(0, Math.min(100, percent));
+    var color = opts.color || (clamped >= 80 ? "#16a34a" : clamped >= 40 ? "#f59e0b" : "#ea580c");
+    var mini = !!opts.mini;
+    var barHtml = '<div class="progress-bar-track"><div class="progress-bar-fill" style="width:' + clamped + '%;background:' + color + '"></div></div>';
+
+    if (mini) {
+      container.innerHTML = '<div class="progress-bar-mini">' + barHtml + '<span>' + Math.round(clamped) + '%</span></div>';
+      return;
+    }
+
+    container.innerHTML = '<div class="progress-bar-wrap">' +
+      '<div class="progress-bar-head"><strong>' + Math.round(clamped) + '% complete</strong>' + (opts.metaText ? '<span>' + opts.metaText + '</span>' : '') + '</div>' +
+      barHtml +
+    '</div>';
+  }
+
   window.Charts = {
     renderBarChart: renderBarChart,
     renderDonutChart: renderDonutChart,
     renderProgressRing: renderProgressRing,
+    renderProgressBar: renderProgressBar,
     fmtCompact: fmtCompact,
     PALETTE: PALETTE
   };
