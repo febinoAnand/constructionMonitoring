@@ -75,11 +75,15 @@
       }
 
       listEl.innerHTML = reports.map(function (r) {
+        var isAuto = r.source === "task_complete";
+        var sourceChip = isAuto
+          ? '<span class="chip chip-green">' + App.svg("check") + ' Auto — task completed</span>'
+          : '<span class="chip chip-slate">Manual entry</span>';
         return '<div class="panel" style="padding:18px 20px">' +
           '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">' +
             '<div>' +
               '<div style="font-weight:800;font-size:14px;margin-bottom:2px">' + (r.title || "Work Report") + '</div>' +
-              '<div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">' + Data.displayDate(r.date) + '</div>' +
+              '<div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px">' + Data.displayDate(r.date) + sourceChip + '</div>' +
               '<p style="margin:0;font-size:13.5px;line-height:1.6">' + r.description + '</p>' +
             '</div>' +
             (canDelete ? '<button class="action-trigger" data-del="' + r.id + '">' + App.svg("trash") + '</button>' : '') +
@@ -104,7 +108,8 @@
       var reports = Data.getWorkReports();
       reports.push({
         id: Data.uid("wr"), projectId: projectId, date: document.getElementById("fDate").value,
-        title: document.getElementById("fTitle").value.trim(), description: desc
+        title: document.getElementById("fTitle").value.trim(), description: desc,
+        source: "manual", taskId: null
       });
       Data.saveWorkReports(reports);
       App.showToast("Report added");

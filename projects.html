@@ -133,11 +133,14 @@
 
     tbody.innerHTML = projects.map(function (p) {
       var est = Business.estimateCompletion(p);
+      var pct = Math.max(0, Math.min(100, est.percentComplete));
+      var barColor = pct >= 80 ? "#16a34a" : pct >= 40 ? "#f59e0b" : "#ea580c";
+      var miniBar = '<div class="progress-bar-mini"><div class="progress-bar-track"><div class="progress-bar-fill" style="width:' + pct + '%;background:' + barColor + '"></div></div><span>' + pct + '%</span></div>';
       return '<tr>' +
         '<td><a href="project-overview.html?id=' + p.id + '"><strong>' + p.name + '</strong></a><br><span class="cell-mono">' + p.code + '</span></td>' +
         '<td>' + (p.clientName || "—") + '</td>' +
         '<td><span class="status-pill ' + statusPillClass(p.status) + '">' + statusLabel(p.status) + '</span></td>' +
-        '<td>' + est.percentComplete + '%' + (est.atRisk ? ' <span class="badge badge-danger">At risk</span>' : '') + '</td>' +
+        '<td>' + miniBar + (est.atRisk ? '<span class="badge badge-danger">At risk</span>' : '') + '</td>' +
         '<td>' + Data.displayDate(p.targetEndDate) + '</td>' +
         '<td>' +
           '<div class="row-actions">' +

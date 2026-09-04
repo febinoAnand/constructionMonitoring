@@ -88,8 +88,13 @@
           '<div class="table-scroll" style="max-height:280px;overflow-y:auto"><table class="data-table"><thead><tr><th>Date</th><th>Category</th><th>Amount</th></tr></thead><tbody id="miniBody"></tbody></table></div>' +
         '</div>' +
       '</div>' +
+      '<div class="panel full-panel" style="margin-top:20px">' +
+        '<div class="panel-header"><h3>Material Costs — Billing &amp; Usage</h3><a href="project-stock.html?id=' + projectId + '">View full stock ledger &rarr;</a></div>' +
+        '<div class="stat-grid stat-grid-tight" id="materialStatGrid" style="margin-bottom:16px"></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Purchased</th><th>Purchase Cost</th><th>Used</th><th>Usage Cost</th><th>Balance</th></tr></thead><tbody id="materialBody"></tbody></table></div>' +
+      '</div>' +
       '<div class="table-card" style="margin-top:20px">' +
-        '<div class="table-toolbar"><span class="toolbar-meta">All expenses for this project</span></div>' +
+        '<div class="table-toolbar"><span class="toolbar-meta">All expenses for this project (transport, equipment, permits, utilities &amp; misc)</span></div>' +
         '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th></th></tr></thead><tbody id="fullBody"></tbody></table></div>' +
       '</div>';
 
@@ -111,6 +116,26 @@
       Charts.renderDonutChart(document.getElementById("catChart"), Object.keys(byCat).map(function (k) {
         return { label: categoryLabels[k] || k, value: byCat[k] };
       }), { centerLabel: "Total", formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
+
+      var materialSummary = Business.getMaterialCostBreakdown(projectId);
+      var combinedCost = Business.getProjectCost(projectId).totalCashSpent;
+      document.getElementById("materialStatGrid").innerHTML =
+        '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("truck") + '</div><div class="stat-value">₹' + Charts.fmtCompact(materialSummary.totalPurchaseCost) + '</div><div class="stat-label">Material purchase (billing)</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-amber">' + App.svg("box") + '</div><div class="stat-value">₹' + Charts.fmtCompact(materialSummary.totalUsageCost) + '</div><div class="stat-label">Material usage (consumed)</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(combinedCost) + '</div><div class="stat-label">Total project cost (materials + wages + other)</div></div>';
+
+      document.getElementById("materialBody").innerHTML = materialSummary.rows.length
+        ? materialSummary.rows.map(function (r) {
+            return '<tr>' +
+              '<td><strong>' + r.material.name + '</strong></td>' +
+              '<td>' + r.purchasedQty + ' ' + r.material.unit + '</td>' +
+              '<td class="total-amount">₹' + Charts.fmtCompact(r.purchaseCost) + '</td>' +
+              '<td>' + r.usedQty + ' ' + r.material.unit + '</td>' +
+              '<td class="total-amount">₹' + Charts.fmtCompact(r.usageCost) + '</td>' +
+              '<td>' + r.balanceQty + ' ' + r.material.unit + '</td>' +
+            '</tr>';
+          }).join("")
+        : '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("box") + '<p>No material activity for this project yet.</p></div></td></tr>';
 
       document.getElementById("expCount").textContent = expenses.length;
       document.getElementById("miniBody").innerHTML = expenses.slice(0, 6).map(function (e) {

@@ -122,11 +122,11 @@
 
   function buildSeedUsers() {
     return [
-      { id: "u1", name: "Vijay Kumar", roleId: "r_admin", phone: "9840012345", assignedProjectIds: [] },
-      { id: "u2", name: "Ramesh Babu", roleId: "r_supervisor", phone: "9840023456", assignedProjectIds: ["p1"] },
-      { id: "u3", name: "Suresh Raj", roleId: "r_supervisor", phone: "9840034567", assignedProjectIds: ["p2"] },
-      { id: "u4", name: "Anitha Selvam", roleId: "r_supervisor", phone: "9840045678", assignedProjectIds: ["p1", "p3"] },
-      { id: "u5", name: "Priya Sundaram", roleId: "r_accountant", phone: "9840056789", assignedProjectIds: [] }
+      { id: "u1", name: "Vijay Kumar", username: "vijay.kumar", email: "vijay@buildtrack.in", roleId: "r_admin", phone: "9840012345", assignedProjectIds: [] },
+      { id: "u2", name: "Ramesh Babu", username: "ramesh.babu", email: "ramesh@buildtrack.in", roleId: "r_supervisor", phone: "9840023456", assignedProjectIds: ["p1"] },
+      { id: "u3", name: "Suresh Raj", username: "suresh.raj", email: "suresh@buildtrack.in", roleId: "r_supervisor", phone: "9840034567", assignedProjectIds: ["p2"] },
+      { id: "u4", name: "Anitha Selvam", username: "anitha.selvam", email: "anitha@buildtrack.in", roleId: "r_supervisor", phone: "9840045678", assignedProjectIds: ["p1", "p3"] },
+      { id: "u5", name: "Priya Sundaram", username: "priya.sundaram", email: "priya@buildtrack.in", roleId: "r_accountant", phone: "9840056789", assignedProjectIds: [] }
     ];
   }
 
@@ -473,7 +473,9 @@
           projectId: pid,
           date: isoDate(addDays(t, -(i * 4 + pIdx))),
           title: "Daily site update",
-          description: template.replace("{n}", n)
+          description: template.replace("{n}", n),
+          source: "manual",
+          taskId: null
         });
       }
     });
@@ -537,7 +539,8 @@
           assignee: labourers[(pIdx + i) % labourers.length],
           status: status,
           date: isoDate(addDays(t, dayOffset)),
-          notes: ""
+          notes: "",
+          customFields: {}
         });
       }
     });
@@ -545,6 +548,17 @@
   }
 
   var tasksStore = makeStore(TASKS_KEY, buildSeedTasks);
+
+  /* ---------------- Task custom field definitions (per-project, user-defined) ---------------- */
+
+  var TASK_FIELD_DEFS_KEY = "cui_task_field_defs_v1";
+  var taskFieldDefsStore = makeStore(TASK_FIELD_DEFS_KEY, function () { return []; });
+  var TASK_FIELD_TYPES = ["text", "number", "date"];
+
+  /* ---------------- Extra Kanban columns beyond To Do / In Progress / Done (per-project, user-defined) ---------------- */
+
+  var TASK_STATUS_DEFS_KEY = "cui_task_status_defs_v1";
+  var taskStatusDefsStore = makeStore(TASK_STATUS_DEFS_KEY, function () { return []; });
 
   /* ---------------- Cross-entity helpers ---------------- */
 
@@ -579,6 +593,8 @@
     getCustomers: customersStore.get, saveCustomers: customersStore.save,
     getCustomerLedger: customerLedgerStore.get, saveCustomerLedger: customerLedgerStore.save,
     getTasks: tasksStore.get, saveTasks: tasksStore.save,
+    getTaskFieldDefs: taskFieldDefsStore.get, saveTaskFieldDefs: taskFieldDefsStore.save,
+    getTaskStatusDefs: taskStatusDefsStore.get, saveTaskStatusDefs: taskStatusDefsStore.save,
     getProjects: projectsStore.get, saveProjects: projectsStore.save,
     getLabourers: labourersStore.get, saveLabourers: labourersStore.save,
     getAttendance: attendanceStore.get, saveAttendance: attendanceStore.save,
@@ -594,6 +610,7 @@
     EXPENSE_CATEGORIES: EXPENSE_CATEGORIES,
     PERMISSION_MODULES: PERMISSION_MODULES,
     TASK_STATUSES: TASK_STATUSES,
+    TASK_FIELD_TYPES: TASK_FIELD_TYPES,
     fullPerms: fullPerms
   };
 })();

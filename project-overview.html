@@ -78,14 +78,11 @@
 
     var est = Business.estimateCompletion(project);
     var ringEl = document.getElementById("progressRing");
-    var ringSvgHost = document.createElement("div");
-    Charts.renderProgressRing(ringSvgHost, est.percentComplete);
-    ringEl.innerHTML = ringSvgHost.innerHTML +
-      '<div class="progress-ring-meta">' +
-        '<strong>' + est.percentComplete + '% complete</strong>' +
-        '<span>' + (est.hasData ? "Est. finish: " + Data.displayDate(est.estimatedDate) : "No progress recorded yet") + '</span>' +
-        (est.atRisk ? '<span class="badge badge-danger" style="margin-top:6px">At risk of missing target</span>' : (est.hasData ? '<span class="badge badge-success" style="margin-top:6px">On track</span>' : '')) +
-      '</div>';
+    var metaText = est.hasData ? "Est. finish: " + Data.displayDate(est.estimatedDate) : "No progress recorded yet";
+    Charts.renderProgressBar(ringEl, est.percentComplete, { metaText: metaText });
+    ringEl.insertAdjacentHTML("beforeend",
+      est.atRisk ? '<span class="badge badge-danger" style="margin-top:10px;display:inline-block">At risk of missing target</span>' :
+      (est.hasData ? '<span class="badge badge-success" style="margin-top:10px;display:inline-block">On track</span>' : ''));
 
     var cost = Business.getProjectCost(projectId);
     document.getElementById("costSummary").innerHTML =

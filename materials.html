@@ -60,11 +60,46 @@
           <div class="field"><label>Unit <span class="req">*</span></label><input type="text" id="fUnit" placeholder="e.g. bag, ton, cft" required></div>
           <div class="field full"><label>Reorder Threshold</label><input type="number" id="fThreshold" min="0"></div>
         </div>
+        <div id="billingFieldsWrap">
+          <div class="field-group-divider">Initial Purchase — Billing (optional)</div>
+          <p class="section-subheading">If you're recording a material you've already bought, fill this in and it'll show up as billing history and stock for that project.</p>
+          <div class="field-grid">
+            <div class="field full"><label>Project</label><select id="fProject"><option value="">— No initial purchase —</option></select></div>
+            <div class="field"><label>Quantity</label><input type="number" id="fQty" min="0" step="0.01"></div>
+            <div class="field"><label>Rate / unit (₹)</label><input type="number" id="fRate" min="0"></div>
+            <div class="field"><label>Date</label><input type="date" id="fPurchaseDate"></div>
+            <div class="field"><label>Source</label>
+              <select id="fSource">
+                <option value="purchase">Vendor purchase</option>
+                <option value="godown">Godown (central store)</option>
+              </select>
+            </div>
+            <div class="field" id="fSupplierWrap"><label>Supplier</label><input type="text" id="fSupplier"></div>
+            <div class="field" id="fBillNoWrap"><label>Bill No.</label><input type="text" id="fBillNo" placeholder="e.g. INV-2451"></div>
+            <div class="field" id="fGstWrap"><label>GST (%)</label><input type="number" id="fGst" min="0" step="0.01" value="0"></div>
+          </div>
+        </div>
       </form>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" id="cancelModal">Cancel</button>
       <button class="btn btn-primary" id="saveBtn">Save Material</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="billingModal">
+  <div class="modal-box" style="max-width:920px">
+    <div class="modal-header">
+      <div><h3 id="billingTitle">Billing History</h3><p>Every purchase of this material, across all projects — when, where from, and at what rate.</p></div>
+      <button class="modal-close" id="closeBillingModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="stat-grid stat-grid-tight" id="billingStatGrid" style="margin-bottom:16px"></div>
+      <div class="table-scroll"><table class="data-table"><thead><tr><th>Bill No.</th><th>Date</th><th>Project</th><th>Source</th><th>Quantity</th><th>Rate</th><th>GST</th><th>Amount</th></tr></thead><tbody id="billingBody"></tbody></table></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="doneBillingModal">Close</button>
     </div>
   </div>
 </div>
@@ -112,9 +147,9 @@
           '<div class="row-actions">' +
             '<button class="action-trigger" data-menu-toggle="' + m.id + '">' + App.svg("dots") + '</button>' +
             '<div class="action-menu" data-menu="' + m.id + '">' +
+              '<button data-billing="' + m.id + '">' + App.svg("fileText") + ' Billing history</button>' +
               (canEdit ? '<button data-edit="' + m.id + '">' + App.svg("edit") + ' Edit</button>' : '') +
               (canDelete ? '<button class="danger" data-delete="' + m.id + '">' + App.svg("trash") + ' Delete</button>' : '') +
-              (!canEdit && !canDelete ? '<button disabled>No actions</button>' : '') +
             '</div>' +
           '</div>' +
         '</td>' +
@@ -139,7 +174,54 @@
     if (edit) { openModal(edit.getAttribute("data-edit")); return; }
     var del = e.target.closest("[data-delete]");
     if (del) { deleteMat(del.getAttribute("data-delete")); return; }
+    var billing = e.target.closest("[data-billing]");
+    if (billing) { openBillingModal(billing.getAttribute("data-billing")); return; }
   });
+
+  var billingModal = document.getElementById("billingModal");
+  function sourceLabel(t) {
+    if (t.source === "transfer") {
+      var srcProj = Data.getProjects().find(function (p) { return p.id === t.sourceProjectId; });
+      return "Transferred (from " + (srcProj ? srcProj.name : "another project") + ")";
+    }
+    if (t.source === "godown") return "Godown (central store)";
+    return t.supplierName ? "Vendor: " + t.supplierName : "Vendor purchase";
+  }
+  function openBillingModal(materialId) {
+    var mat = Data.getMaterials().find(function (m) { return m.id === materialId; });
+    document.getElementById("billingTitle").textContent = "Billing History — " + (mat ? mat.name : "");
+    var purchases = Data.getStockTransactions()
+      .filter(function (t) { return t.materialId === materialId && t.type === "inward"; })
+      .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+
+    var totalQty = purchases.reduce(function (s, t) { return s + t.quantity; }, 0);
+    var totalCost = purchases.reduce(function (s, t) { return s + t.totalAmount; }, 0);
+    document.getElementById("billingStatGrid").innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("fileText") + '</div><div class="stat-value">' + purchases.length + '</div><div class="stat-label">Purchase entries</div></div>' +
+      '<div class="stat-card"><div class="stat-icon icon-amber">' + App.svg("box") + '</div><div class="stat-value">' + totalQty + ' ' + (mat ? mat.unit : "") + '</div><div class="stat-label">Total quantity purchased</div></div>' +
+      '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(totalCost) + '</div><div class="stat-label">Total billed</div></div>';
+
+    document.getElementById("billingBody").innerHTML = purchases.length
+      ? purchases.map(function (t) {
+          var proj = Data.getProjects().find(function (p) { return p.id === t.projectId; });
+          return '<tr>' +
+            '<td>' + (t.invoiceNumber || "—") + '</td>' +
+            '<td>' + Data.displayDate(t.date) + '</td>' +
+            '<td>' + (proj ? proj.name : "—") + '</td>' +
+            '<td>' + sourceLabel(t) + '</td>' +
+            '<td>' + t.quantity + ' ' + (mat ? mat.unit : "") + '</td>' +
+            '<td>₹' + t.ratePerUnit + '</td>' +
+            '<td>' + (t.gstAmount ? t.gstPercent + '% (₹' + t.gstAmount + ')' : "—") + '</td>' +
+            '<td class="total-amount">₹' + t.totalAmount + '</td>' +
+          '</tr>';
+        }).join("")
+      : '<tr><td colspan="8"><div class="empty-state compact">' + App.svg("fileText") + '<p>No purchases recorded for this material yet.</p></div></td></tr>';
+
+    billingModal.classList.add("show");
+  }
+  document.getElementById("closeBillingModal").addEventListener("click", function () { billingModal.classList.remove("show"); });
+  document.getElementById("doneBillingModal").addEventListener("click", function () { billingModal.classList.remove("show"); });
+  billingModal.addEventListener("click", function (e) { if (e.target === billingModal) billingModal.classList.remove("show"); });
   window.addEventListener("scroll", function () { if (openMenuId) App.positionActionMenu(openMenuId); }, true);
 
   function deleteMat(id) {
@@ -150,9 +232,24 @@
   }
 
   var modal = document.getElementById("matModal");
+  var allProjectsForBilling = Data.getProjects();
+  document.getElementById("fProject").innerHTML += allProjectsForBilling.map(function (p) {
+    return '<option value="' + p.id + '">' + p.name + ' (' + p.code + ')</option>';
+  }).join("");
+
+  function syncSupplierField() {
+    var isGodown = document.getElementById("fSource").value === "godown";
+    document.getElementById("fSupplierWrap").style.display = isGodown ? "none" : "";
+    document.getElementById("fBillNoWrap").style.display = isGodown ? "none" : "";
+    document.getElementById("fGstWrap").style.display = isGodown ? "none" : "";
+  }
+  document.getElementById("fSource").addEventListener("change", syncSupplierField);
+
   function openModal(id) {
     document.getElementById("matForm").reset();
     document.getElementById("editId").value = id || "";
+    document.getElementById("fPurchaseDate").value = Data.isoDate(Data.today());
+    syncSupplierField();
     if (id) {
       var m = Data.getMaterials().find(function (x) { return x.id === id; });
       document.getElementById("modalTitle").textContent = "Edit Material";
@@ -160,8 +257,10 @@
       document.getElementById("fCategory").value = m.category || "";
       document.getElementById("fUnit").value = m.unit;
       document.getElementById("fThreshold").value = m.reorderThreshold;
+      document.getElementById("billingFieldsWrap").style.display = "none";
     } else {
       document.getElementById("modalTitle").textContent = "Add Material";
+      document.getElementById("billingFieldsWrap").style.display = "";
     }
     modal.classList.add("show");
   }
@@ -185,6 +284,29 @@
       unit: unit,
       reorderThreshold: Number(document.getElementById("fThreshold").value) || 0
     };
+
+    if (!id) {
+      var qty = Number(document.getElementById("fQty").value) || 0;
+      if (qty > 0) {
+        var billingProjectId = document.getElementById("fProject").value;
+        if (!billingProjectId) { App.showToast("Choose which project this initial purchase is for", true); return; }
+        var rate = Number(document.getElementById("fRate").value) || 0;
+        var source = document.getElementById("fSource").value;
+        var subtotal = Math.round(qty * rate);
+        var gstPercent = source === "godown" ? 0 : (Number(document.getElementById("fGst").value) || 0);
+        var gstAmount = Math.round(subtotal * gstPercent / 100);
+        var txns = Data.getStockTransactions();
+        txns.push({
+          id: Data.uid("st"), projectId: billingProjectId, materialId: record.id, type: "inward",
+          quantity: qty, ratePerUnit: rate, totalAmount: subtotal + gstAmount,
+          date: document.getElementById("fPurchaseDate").value || Data.isoDate(Data.today()),
+          supplierName: source === "godown" ? "" : document.getElementById("fSupplier").value.trim(),
+          invoiceNumber: source === "godown" ? "" : document.getElementById("fBillNo").value.trim(),
+          gstPercent: gstPercent, gstAmount: gstAmount, notes: "", source: source
+        });
+        Data.saveStockTransactions(txns);
+      }
+    }
 
     var all = Data.getMaterials();
     all = id ? all.map(function (m) { return m.id === id ? record : m; }) : all.concat([record]);

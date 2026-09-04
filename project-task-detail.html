@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task Detail</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div><h2 id="taskTitleHeading">Loading…</h2><p id="taskMeta"></p></div>
+        <a class="btn btn-outline" id="backLink">&larr; Back to Board</a>
+      </div>
+
+      <div id="tabsMount"></div>
+      <div id="pageBody"></div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  var projectId = new URLSearchParams(window.location.search).get("id");
+  var taskId = new URLSearchParams(window.location.search).get("task");
+  var project = Data.getProjects().find(function (p) { return p.id === projectId; });
+  App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: "Task detail" });
+
+  function statusPillClass(key) { return key === "done" ? "delivered" : key === "todo" ? "pending" : "confirmed"; }
+
+  document.getElementById("backLink").href = "project-tasks.html?id=" + projectId;
+
+  if (!project || !App.guardProjectAccess(projectId)) {
+    document.getElementById("taskTitleHeading").textContent = project ? "Access restricted" : "Project not found";
+  } else {
+    document.getElementById("tabsMount").innerHTML = App.projectTabsHtml(projectId, "tasks");
+    var canUpdate = App.can("progress", "update");
+    var canDelete = App.can("progress", "delete");
+
+    var task = Data.getTasks().find(function (t) { return t.id === taskId && t.projectId === projectId; });
+
+    function fieldDefs() {
+      return Data.getTaskFieldDefs().filter(function (f) { return f.projectId === projectId; });
+    }
+    function statusColumns() { return Business.getProjectStatusColumns(projectId); }
+    function statusMeta(key) { return statusColumns().find(function (s) { return s.key === key; }) || { key: key, label: key }; }
+
+    function render() {
+      document.getElementById("taskTitleHeading").textContent = task.title;
+      document.getElementById("taskMeta").textContent = project.name + " · " + project.code;
+
+      document.getElementById("pageBody").innerHTML =
+        '<div class="detail-grid">' +
+          '<div class="detail-card">' +
+            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("columns") + '</span>Task Details<span class="status-pill ' + statusPillClass(task.status) + '" style="margin-left:auto">' + statusMeta(task.status).label + '</span></div>' +
+            '<div style="padding:20px">' +
+              '<div class="field-grid">' +
+                '<div class="field full"><label>Title</label><input type="text" id="tdTitle"></div>' +
+                '<div class="field"><label>Status</label><select id="tdStatus"></select></div>' +
+                '<div class="field"><label>Date</label><input type="date" id="tdDate"></div>' +
+                '<div class="field full">' +
+                  '<label>Assignee</label>' +
+                  '<div style="display:flex;gap:8px">' +
+                    '<input type="text" id="tdAssignee" placeholder="Labourer / team" style="flex:1">' +
+                    (canUpdate ? '<button type="button" class="btn btn-outline" id="assignToMeBtn">Assign to me</button>' : '') +
+                  '</div>' +
+                '</div>' +
+                '<div class="field full"><label>Description / Notes</label><textarea id="tdNotes" rows="5" placeholder="Add details, blockers, or context about this task..."></textarea></div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="detail-card">' +
+            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("edit") + '</span>Custom Fields</div>' +
+            '<div style="padding:20px">' +
+              '<div id="tdCustomFields" style="display:flex;flex-direction:column;gap:12px"></div>' +
+              (canUpdate ?
+              '<form id="tdAddFieldForm" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">' +
+                '<div class="field-grid">' +
+                  '<div class="field"><label>New field label</label><input type="text" id="tdNewFieldLabel" placeholder="e.g. Floor Level"></div>' +
+                  '<div class="field"><label>Type</label>' +
+                    '<select id="tdNewFieldType">' +
+                      '<option value="text">Text</option>' +
+                      '<option value="number">Number</option>' +
+                      '<option value="date">Date</option>' +
+                    '</select>' +
+                  '</div>' +
+                '</div>' +
+                '<button type="submit" class="btn btn-outline" style="margin-top:12px;width:100%">+ Add Field</button>' +
+              '</form>' : '') +
+              (canDelete ?
+              '<div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">' +
+                '<button type="button" class="btn btn-outline" id="tdDeleteTask" style="color:var(--danger);border-color:var(--danger);width:100%">' + App.svg("trash") + ' Delete Task</button>' +
+              '</div>' : '') +
+            '</div>' +
+          '</div>' +
+        '</div>';
+
+      var statusSelect = document.getElementById("tdStatus");
+      statusSelect.innerHTML = statusColumns().map(function (s) { return '<option value="' + s.key + '">' + s.label + '</option>'; }).join("");
+      statusSelect.value = task.status;
+
+      document.getElementById("tdTitle").value = task.title;
+      document.getElementById("tdAssignee").value = task.assignee || "";
+      document.getElementById("tdDate").value = task.date || "";
+      document.getElementById("tdNotes").value = task.notes || "";
+
+      var readOnly = !canUpdate;
+      ["tdTitle", "tdStatus", "tdAssignee", "tdDate", "tdNotes"].forEach(function (id) {
+        document.getElementById(id).disabled = readOnly;
+      });
+
+      renderCustomFields();
+      wireEvents();
+    }
+
+    function renderCustomFields() {
+      var defs = fieldDefs();
+      document.getElementById("tdCustomFields").innerHTML = defs.length
+        ? defs.map(function (f) {
+            var v = (task.customFields && task.customFields[f.key]) || "";
+            var inputType = f.type === "number" ? "number" : f.type === "date" ? "date" : "text";
+            return '<div style="display:flex;align-items:flex-end;gap:8px">' +
+              '<div class="field" style="flex:1;margin:0"><label>' + f.label + '</label><input type="' + inputType + '" value="' + v + '" data-td-field="' + f.key + '" ' + (canUpdate ? '' : 'disabled') + '></div>' +
+              (canUpdate ? '<button type="button" class="action-trigger" data-td-del-field="' + f.id + '" title="Remove field">' + App.svg("trash") + '</button>' : '') +
+            '</div>';
+          }).join("")
+        : '<p style="font-size:12.5px;color:var(--muted);margin:0">No custom fields yet' + (canUpdate ? ' — add one below.' : '.') + '</p>';
+    }
+
+    function saveTaskPatch(patch) {
+      var tasks = Data.getTasks();
+      var t = tasks.find(function (x) { return x.id === taskId; });
+      if (!t) return;
+      var wasDone = t.status === "done";
+      Object.assign(t, patch);
+      Data.saveTasks(tasks);
+      task = t;
+      if (!wasDone && t.status === "done") syncCompletionReport(t);
+    }
+
+    /* Mirrors the same auto-report logic used on the board — completing a task
+       from its detail page should log a work report exactly like completing it on the board. */
+    function syncCompletionReport(t) {
+      var reports = Data.getWorkReports();
+      var existing = reports.find(function (r) { return r.taskId === t.id && r.source === "task_complete"; });
+      var today = Data.isoDate(Data.today());
+      if (existing) {
+        existing.date = today;
+        existing.title = t.title;
+        existing.description = "Task completed: " + t.title + (t.assignee ? " (" + t.assignee + ")" : "") + ".";
+      } else {
+        reports.push({
+          id: Data.uid("wr"), projectId: projectId, date: today, title: t.title,
+          description: "Task completed: " + t.title + (t.assignee ? " (" + t.assignee + ")" : "") + ".",
+          source: "task_complete", taskId: t.id
+        });
+      }
+      Data.saveWorkReports(reports);
+    }
+
+    function wireEvents() {
+      if (!canUpdate) return;
+
+      document.getElementById("tdTitle").addEventListener("change", function () {
+        saveTaskPatch({ title: this.value.trim() || "Untitled task" });
+        document.getElementById("taskTitleHeading").textContent = task.title;
+      });
+      document.getElementById("tdStatus").addEventListener("change", function () {
+        saveTaskPatch({ status: this.value });
+        document.querySelector(".status-pill").className = "status-pill " + statusPillClass(task.status);
+        document.querySelector(".status-pill").textContent = statusMeta(task.status).label;
+        App.showToast("Status updated to " + statusMeta(task.status).label);
+      });
+      document.getElementById("tdAssignee").addEventListener("change", function () { saveTaskPatch({ assignee: this.value.trim() }); });
+      document.getElementById("tdDate").addEventListener("change", function () { saveTaskPatch({ date: this.value }); });
+      document.getElementById("tdNotes").addEventListener("change", function () { saveTaskPatch({ notes: this.value }); });
+
+      var assignBtn = document.getElementById("assignToMeBtn");
+      if (assignBtn) assignBtn.addEventListener("click", function () {
+        var me = App.getCurrentUser();
+        if (!me) return;
+        document.getElementById("tdAssignee").value = me.name;
+        saveTaskPatch({ assignee: me.name });
+        App.showToast("Assigned to you");
+      });
+
+      document.getElementById("tdCustomFields").addEventListener("change", function (e) {
+        var input = e.target.closest("[data-td-field]");
+        if (!input) return;
+        var customFields = Object.assign({}, task.customFields);
+        customFields[input.getAttribute("data-td-field")] = input.value;
+        saveTaskPatch({ customFields: customFields });
+      });
+
+      document.getElementById("tdCustomFields").addEventListener("click", function (e) {
+        var delBtn = e.target.closest("[data-td-del-field]");
+        if (!delBtn) return;
+        if (!confirm("Remove this field from the project? Existing values will be hidden but not deleted.")) return;
+        Data.saveTaskFieldDefs(Data.getTaskFieldDefs().filter(function (f) { return f.id !== delBtn.getAttribute("data-td-del-field"); }));
+        renderCustomFields();
+      });
+
+      var addFieldForm = document.getElementById("tdAddFieldForm");
+      if (addFieldForm) addFieldForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var label = document.getElementById("tdNewFieldLabel").value.trim();
+        if (!label) { App.showToast("Enter a field label", true); return; }
+        var type = document.getElementById("tdNewFieldType").value;
+        var key = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || Data.uid("f");
+        var defs = Data.getTaskFieldDefs();
+        if (defs.some(function (f) { return f.projectId === projectId && f.key === key; })) {
+          App.showToast("A field with that name already exists", true);
+          return;
+        }
+        defs.push({ id: Data.uid("fd"), projectId: projectId, key: key, label: label, type: type });
+        Data.saveTaskFieldDefs(defs);
+        addFieldForm.reset();
+        renderCustomFields();
+        App.showToast("Field added");
+      });
+
+      var deleteBtn = document.getElementById("tdDeleteTask");
+      if (deleteBtn) deleteBtn.addEventListener("click", function () {
+        if (!confirm("Delete this task?")) return;
+        Data.saveTasks(Data.getTasks().filter(function (t) { return t.id !== taskId; }));
+        App.showToast("Task removed");
+        window.location.href = "project-tasks.html?id=" + projectId;
+      });
+    }
+
+    if (!task) {
+      document.getElementById("taskTitleHeading").textContent = "Task not found";
+      document.getElementById("taskMeta").textContent = "This task may have been deleted.";
+    } else {
+      render();
+    }
+  }
+</script>
+</body>
+</html>
