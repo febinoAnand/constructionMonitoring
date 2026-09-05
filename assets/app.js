@@ -153,6 +153,11 @@
     var menu = document.querySelector('[data-menu="' + id + '"]');
     if (!trigger || !menu) return;
 
+    // Must be visible (display:block) before measuring — callers show the menu
+    // right after this runs, but a display:none menu measures as 0x0, which
+    // breaks the "flip upward near the bottom of the viewport" check below.
+    menu.classList.add("show");
+
     var triggerRect = trigger.getBoundingClientRect();
     var menuRect = menu.getBoundingClientRect();
     var viewportW = window.innerWidth;
