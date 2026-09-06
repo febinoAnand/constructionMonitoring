@@ -25,6 +25,76 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="addLedgerModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Add Ledger Entry</h3><p>Record a new invoice or receipt for this customer.</p></div>
+      <button class="modal-close" id="closeAddLedgerModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="ledgerForm">
+        <div class="field-grid">
+          <div class="field"><label>Type</label><select id="fType"><option value="invoice">Invoice (billed)</option><option value="receipt">Receipt (payment received)</option></select></div>
+          <div class="field"><label>Project</label><select id="fProject"><option value="">— No project —</option></select></div>
+          <div class="field"><label>Amount (₹)</label><input type="number" id="fAmount" min="0" required></div>
+          <div class="field"><label>Date</label><input type="date" id="fDate"></div>
+          <div class="field full"><label>Description / Invoice #</label><input type="text" id="fDesc"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelAddLedgerModal">Cancel</button>
+      <button class="btn btn-primary" id="saveAddLedgerBtn">+ Add Entry</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="ledgerEditModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Edit Ledger Entry</h3><p>Adjust this billing entry.</p></div>
+      <button class="modal-close" id="closeLedgerEditModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="ledgerEditForm">
+        <input type="hidden" id="eId">
+        <div class="field-grid">
+          <div class="field"><label>Type</label><select id="eType"><option value="invoice">Invoice (billed)</option><option value="receipt">Receipt (payment received)</option></select></div>
+          <div class="field"><label>Project</label><select id="eProject"><option value="">— No project —</option></select></div>
+          <div class="field"><label>Amount (₹)</label><input type="number" id="eAmount" min="0" required></div>
+          <div class="field"><label>Date</label><input type="date" id="eDate"></div>
+          <div class="field full"><label>Description / Invoice #</label><input type="text" id="eDesc"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelLedgerEditModal">Cancel</button>
+      <button class="btn btn-primary" id="saveLedgerEditBtn">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="downloadModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Download Ledger History</h3><p>Choose a date range to export.</p></div>
+      <button class="modal-close" id="closeDownloadModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="downloadForm">
+        <div class="field-grid">
+          <div class="field"><label>From Date</label><input type="date" id="dlFrom"></div>
+          <div class="field"><label>To Date</label><input type="date" id="dlTo"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelDownloadModal">Cancel</button>
+      <button class="btn btn-primary" id="confirmDownloadBtn">Download</button>
+    </div>
+  </div>
+</div>
+
 <script src="assets/data.js"></script>
 <script src="assets/business.js"></script>
 <script src="assets/app.js"></script>
@@ -47,7 +117,7 @@
       document.getElementById("custName").textContent = cust.name;
       document.getElementById("custMeta").textContent = (cust.contactPerson || "No contact set") + " · " + (cust.phone || "No phone");
 
-      var linkedProjects = Data.getProjects().filter(function (p) { return p.customerId === custId; });
+      var linkedProjects = Business.getCustomerProjects(custId);
 
       document.getElementById("pageBody").innerHTML =
         '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
@@ -57,35 +127,33 @@
             '<div class="detail-rows" id="infoRows"></div>' +
           '</div>' +
           '<div class="detail-card">' +
-            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("building") + '</span>Linked Projects</div>' +
-            '<div style="padding:18px 20px" id="linkedProjectsBox"></div>' +
+            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("wallet") + '</span>Expenses Total</div>' +
+            '<div style="padding:18px 20px" id="expensesTotalBox"></div>' +
           '</div>' +
         '</div>' +
         '<div class="panel full-panel">' +
           '<div class="panel-header"><h3>Billing by Project</h3><span class="panel-tag">' + linkedProjects.length + ' project(s)</span></div>' +
-          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Project</th><th>Invoiced</th><th>Received</th><th>Balance Due</th></tr></thead><tbody id="byProjectBody"></tbody></table></div>' +
+          '<div class="table-scroll"><table class="data-table data-table-balanced">' +
+            '<colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>' +
+            '<thead><tr><th>Project</th><th class="text-right">Invoiced</th><th class="text-right">Received</th><th class="text-right">Balance Due</th></tr></thead>' +
+            '<tbody id="byProjectBody"></tbody><tfoot id="byProjectFoot"></tfoot>' +
+          '</table></div>' +
         '</div>' +
-        (canAddEntry ?
-          '<div class="panel full-panel">' +
-            '<div class="panel-header"><h3>Add Ledger Entry</h3></div>' +
-            '<form class="inline-add-form" id="ledgerForm">' +
-              '<div class="field"><label>Type</label><select id="fType"><option value="invoice">Invoice (billed)</option><option value="receipt">Receipt (payment received)</option></select></div>' +
-              '<div class="field" style="flex:1.4"><label>Project</label><select id="fProject"><option value="">— No project —</option>' +
-                linkedProjects.map(function (p) { return '<option value="' + p.id + '">' + p.name + '</option>'; }).join("") +
-              '</select></div>' +
-              '<div class="field"><label>Amount (₹)</label><input type="number" id="fAmount" min="0" required></div>' +
-              '<div class="field"><label>Date</label><input type="date" id="fDate"></div>' +
-              '<div class="field" style="flex:1.4"><label>Description / Invoice #</label><input type="text" id="fDesc"></div>' +
-              '<button type="submit" class="btn btn-primary">+ Add Entry</button>' +
-            '</form>' +
-          '</div>' : '') +
         '<div class="panel full-panel">' +
-          '<div class="panel-header"><h3>Ledger History</h3><span class="panel-tag" id="entryCount"></span></div>' +
-          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Project</th><th>Description</th><th>Amount</th><th></th></tr></thead><tbody id="ledgerBody"></tbody></table></div>' +
+          '<div class="panel-header"><h3>Ledger History</h3>' +
+            '<span style="display:flex;align-items:center;gap:12px">' +
+              '<span class="panel-tag" id="entryCount"></span>' +
+              (canAddEntry ? '<button class="btn btn-primary" id="openAddLedgerBtn" style="padding:8px 16px;font-size:12.5px">+ Add Entry</button>' : '') +
+            '</span>' +
+          '</div>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Project</th><th>Description</th><th class="text-right">Amount</th><th></th></tr></thead><tbody id="ledgerBody"></tbody></table></div>' +
+          '<div class="panel-footer-row"><button class="btn btn-outline" id="downloadBtn">' + App.svg("download") + ' Download</button></div>' +
         '</div>';
 
-      var fDateEl = document.getElementById("fDate");
-      if (fDateEl) fDateEl.value = Data.isoDate(Data.today());
+      var eProjectSelect = document.getElementById("eProject");
+      eProjectSelect.innerHTML += linkedProjects.map(function (p) { return '<option value="' + p.id + '">' + p.name + '</option>'; }).join("");
+      var fProjectSelect = document.getElementById("fProject");
+      fProjectSelect.innerHTML += linkedProjects.map(function (p) { return '<option value="' + p.id + '">' + p.name + '</option>'; }).join("");
 
       function row(label, value) {
         return '<div class="detail-row"><span class="detail-label">' + label + '</span><span class="detail-value">' + value + '</span></div>';
@@ -100,12 +168,10 @@
         row("Address", cust.address || "—") +
         row("Notes", cust.notes || "—");
 
-      var linkedBox = document.getElementById("linkedProjectsBox");
-      linkedBox.innerHTML = linkedProjects.length
-        ? '<div class="activity-list">' + linkedProjects.map(function (p) {
-            return '<div class="activity-item"><div class="activity-dot"></div><div><p><a href="project-overview.html?id=' + p.id + '"><strong>' + p.name + '</strong></a></p><span>' + p.code + ' · ' + p.status + '</span></div></div>';
-          }).join("") + '</div>'
-        : '<div class="empty-state compact">' + App.svg("building") + '<p>No projects linked to this customer yet.</p></div>';
+      var expensesTotalBox = document.getElementById("expensesTotalBox");
+      var totalExpenses = Business.getCustomerTotalExpenses(custId);
+      expensesTotalBox.innerHTML =
+        '<div class="big-stat"><span class="big-stat-value">₹' + Charts.fmtCompact(totalExpenses) + '</span><span class="big-stat-label">Total cash spent across ' + linkedProjects.length + ' linked project(s)</span></div>';
 
       function renderLedger() {
         var l = Business.getCustomerLedger(custId);
@@ -115,20 +181,26 @@
           '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(l.balanceDue) + '</div><div class="stat-label">Balance due</div></div>';
 
         var byProjectBody = document.getElementById("byProjectBody");
+        var byProjectFoot = document.getElementById("byProjectFoot");
         if (!linkedProjects.length) {
           byProjectBody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("building") + '<p>No projects linked yet.</p></div></td></tr>';
+          byProjectFoot.innerHTML = "";
         } else {
+          var totalInvoiced = 0, totalReceived = 0;
           byProjectBody.innerHTML = linkedProjects.map(function (p) {
             var pEntries = l.entries.filter(function (e) { return e.projectId === p.id; });
             var pInvoiced = pEntries.filter(function (e) { return e.type === "invoice"; }).reduce(function (s, e) { return s + e.amount; }, 0);
             var pReceived = pEntries.filter(function (e) { return e.type === "receipt"; }).reduce(function (s, e) { return s + e.amount; }, 0);
+            totalInvoiced += pInvoiced;
+            totalReceived += pReceived;
             return '<tr>' +
               '<td><a href="project-overview.html?id=' + p.id + '"><strong>' + p.name + '</strong></a> <span class="cell-mono">' + p.code + '</span></td>' +
-              '<td class="total-amount">₹' + Charts.fmtCompact(pInvoiced) + '</td>' +
-              '<td class="total-amount">₹' + Charts.fmtCompact(pReceived) + '</td>' +
-              '<td class="total-amount">₹' + Charts.fmtCompact(pInvoiced - pReceived) + '</td>' +
+              '<td class="total-amount text-right">₹' + Charts.fmtCompact(pInvoiced) + '</td>' +
+              '<td class="total-amount text-right">₹' + Charts.fmtCompact(pReceived) + '</td>' +
+              '<td class="total-amount text-right">₹' + Charts.fmtCompact(pInvoiced - pReceived) + '</td>' +
             '</tr>';
           }).join("");
+          byProjectFoot.innerHTML = '<tr class="table-total-row"><td>Total</td><td class="total-amount text-right">₹' + Charts.fmtCompact(totalInvoiced) + '</td><td class="total-amount text-right">₹' + Charts.fmtCompact(totalReceived) + '</td><td class="total-amount text-right">₹' + Charts.fmtCompact(totalInvoiced - totalReceived) + '</td></tr>';
         }
 
         var entries = l.entries.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
@@ -144,41 +216,105 @@
             '<td>' + Data.displayDate(e.date) + '</td>' +
             '<td><span class="chip ' + (e.type === "invoice" ? "chip-amber" : "chip-green") + '">' + (e.type === "invoice" ? "Invoice" : "Receipt") + '</span></td>' +
             '<td>' + (proj ? proj.name : "—") + '</td>' +
-            '<td class="desc-cell">' + (e.description || "—") + (e.invoiceNumber ? ' (' + e.invoiceNumber + ')' : "") + '</td>' +
-            '<td class="total-amount">₹' + e.amount + '</td>' +
-            '<td>' + (canDeleteEntry ? '<button class="action-trigger" data-del="' + e.id + '">' + App.svg("trash") + '</button>' : "") + '</td>' +
+            '<td><span class="desc-cell">' + (e.description || "—") + (e.invoiceNumber ? ' (' + e.invoiceNumber + ')' : "") + '</span></td>' +
+            '<td class="total-amount text-right">₹' + e.amount + '</td>' +
+            '<td><div class="action-buttons-row">' +
+              (canAddEntry ? '<button class="action-trigger" data-edit="' + e.id + '">' + App.svg("edit") + '</button>' : "") +
+              (canDeleteEntry ? '<button class="action-trigger" data-del="' + e.id + '">' + App.svg("trash") + '</button>' : "") +
+            '</div></td>' +
           '</tr>';
         }).join("");
       }
 
       document.getElementById("pageBody").addEventListener("click", function (e) {
-        var btn = e.target.closest("[data-del]");
-        if (!btn) return;
-        Data.saveCustomerLedger(Data.getCustomerLedger().filter(function (x) { return x.id !== btn.getAttribute("data-del"); }));
-        App.showToast("Entry removed");
+        var del = e.target.closest("[data-del]");
+        if (del) {
+          Data.saveCustomerLedger(Data.getCustomerLedger().filter(function (x) { return x.id !== del.getAttribute("data-del"); }));
+          App.showToast("Entry removed");
+          renderLedger();
+          return;
+        }
+        var edit = e.target.closest("[data-edit]");
+        if (edit) { openLedgerEditModal(edit.getAttribute("data-edit")); return; }
+      });
+
+      var ledgerEditModal = document.getElementById("ledgerEditModal");
+      function openLedgerEditModal(id) {
+        var entry = Data.getCustomerLedger().find(function (x) { return x.id === id; });
+        if (!entry) return;
+        document.getElementById("eId").value = entry.id;
+        document.getElementById("eType").value = entry.type;
+        document.getElementById("eProject").value = entry.projectId || "";
+        document.getElementById("eAmount").value = entry.amount;
+        document.getElementById("eDate").value = entry.date;
+        document.getElementById("eDesc").value = entry.description || "";
+        ledgerEditModal.classList.add("show");
+      }
+      function closeLedgerEditModal() { ledgerEditModal.classList.remove("show"); }
+      document.getElementById("closeLedgerEditModal").addEventListener("click", closeLedgerEditModal);
+      document.getElementById("cancelLedgerEditModal").addEventListener("click", closeLedgerEditModal);
+      ledgerEditModal.addEventListener("click", function (e) { if (e.target === ledgerEditModal) closeLedgerEditModal(); });
+      document.getElementById("saveLedgerEditBtn").addEventListener("click", function () {
+        var id = document.getElementById("eId").value;
+        var amount = Number(document.getElementById("eAmount").value);
+        if (!amount) { App.showToast("Enter an amount", true); return; }
+        var entries = Data.getCustomerLedger().map(function (x) {
+          if (x.id !== id) return x;
+          return Object.assign({}, x, {
+            type: document.getElementById("eType").value,
+            projectId: document.getElementById("eProject").value || null,
+            amount: amount,
+            date: document.getElementById("eDate").value,
+            description: document.getElementById("eDesc").value.trim()
+          });
+        });
+        Data.saveCustomerLedger(entries);
+        App.showToast("Ledger entry updated");
+        closeLedgerEditModal();
         renderLedger();
       });
 
-      var ledgerForm = document.getElementById("ledgerForm");
-      if (ledgerForm) {
-        ledgerForm.addEventListener("submit", function (e) {
-          e.preventDefault();
-          var amount = Number(document.getElementById("fAmount").value);
-          if (!amount) { App.showToast("Enter an amount", true); return; }
-          var entries = Data.getCustomerLedger();
-          entries.push({
-            id: Data.uid("cl"), customerId: custId, projectId: document.getElementById("fProject").value || null,
-            type: document.getElementById("fType").value, amount: amount,
-            date: document.getElementById("fDate").value,
-            description: document.getElementById("fDesc").value.trim(), invoiceNumber: ""
-          });
-          Data.saveCustomerLedger(entries);
-          App.showToast("Ledger entry added");
-          ledgerForm.reset();
-          document.getElementById("fDate").value = Data.isoDate(Data.today());
-          renderLedger();
+      var downloadModal = document.getElementById("downloadModal");
+      var downloadBtnEl = document.getElementById("downloadBtn");
+      if (downloadBtnEl) downloadBtnEl.addEventListener("click", function () {
+        document.getElementById("dlFrom").value = "";
+        document.getElementById("dlTo").value = Data.isoDate(Data.today());
+        downloadModal.classList.add("show");
+      });
+      document.getElementById("closeDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+      document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+      downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
+      document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
+        downloadModal.classList.remove("show");
+        App.showToast("Your file is downloading...");
+      });
+
+      var addLedgerModal = document.getElementById("addLedgerModal");
+      var openAddLedgerBtnEl = document.getElementById("openAddLedgerBtn");
+      if (openAddLedgerBtnEl) openAddLedgerBtnEl.addEventListener("click", function () {
+        document.getElementById("ledgerForm").reset();
+        document.getElementById("fDate").value = Data.isoDate(Data.today());
+        addLedgerModal.classList.add("show");
+      });
+      function closeAddLedgerModal() { addLedgerModal.classList.remove("show"); }
+      document.getElementById("closeAddLedgerModal").addEventListener("click", closeAddLedgerModal);
+      document.getElementById("cancelAddLedgerModal").addEventListener("click", closeAddLedgerModal);
+      addLedgerModal.addEventListener("click", function (e) { if (e.target === addLedgerModal) closeAddLedgerModal(); });
+      document.getElementById("saveAddLedgerBtn").addEventListener("click", function () {
+        var amount = Number(document.getElementById("fAmount").value);
+        if (!amount) { App.showToast("Enter an amount", true); return; }
+        var entries = Data.getCustomerLedger();
+        entries.push({
+          id: Data.uid("cl"), customerId: custId, projectId: document.getElementById("fProject").value || null,
+          type: document.getElementById("fType").value, amount: amount,
+          date: document.getElementById("fDate").value,
+          description: document.getElementById("fDesc").value.trim(), invoiceNumber: ""
         });
-      }
+        Data.saveCustomerLedger(entries);
+        App.showToast("Ledger entry added");
+        closeAddLedgerModal();
+        renderLedger();
+      });
 
       renderLedger();
     }

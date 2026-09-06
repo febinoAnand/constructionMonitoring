@@ -30,7 +30,7 @@
 <div class="modal-overlay" id="expModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Add Expense</h3><p>Transport, equipment, permits, utilities & misc — materials and wages are tracked separately.</p></div>
+      <div><h3>Add Expense</h3><p>Transport, equipment, permits, utilities & misc. Wage payments are recorded from the Wages tab and shown here automatically.</p></div>
       <button class="modal-close" id="closeModal">&times;</button>
     </div>
     <div class="modal-body">
@@ -68,8 +68,8 @@
   var project = Data.getProjects().find(function (p) { return p.id === projectId; });
   App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: "Expenses" });
 
-  var categoryLabels = { transport: "Transport", equipment_rental: "Equipment Rental", permits_fees: "Permits & Fees", utilities: "Utilities", misc: "Miscellaneous" };
-  var categoryChip = { transport: "chip-blue", equipment_rental: "chip-amber", permits_fees: "chip-slate", utilities: "chip-green", misc: "chip-pink" };
+  var categoryLabels = { transport: "Transport", equipment_rental: "Equipment Rental", permits_fees: "Permits & Fees", utilities: "Utilities", misc: "Miscellaneous", wages: "Wages" };
+  var categoryChip = { transport: "chip-blue", equipment_rental: "chip-amber", permits_fees: "chip-slate", utilities: "chip-green", misc: "chip-pink", wages: "chip-teal" };
 
   if (!project || !App.guardProjectAccess(projectId)) {
     document.getElementById("projName").textContent = project ? "Access restricted" : "Project not found";
@@ -85,33 +85,45 @@
       '<div class="panel-grid charts-grid">' +
         '<div class="panel"><div class="panel-header"><h3>By Category</h3></div><div id="catChart"></div></div>' +
         '<div class="panel"><div class="panel-header"><h3>Expense List</h3><span class="panel-tag" id="expCount"></span></div>' +
-          '<div class="table-scroll" style="max-height:280px;overflow-y:auto"><table class="data-table"><thead><tr><th>Date</th><th>Category</th><th>Amount</th></tr></thead><tbody id="miniBody"></tbody></table></div>' +
+          '<div class="table-scroll" style="max-height:280px;overflow-y:auto"><table class="data-table"><thead><tr><th>Date</th><th>Category</th><th class="text-right">Amount</th></tr></thead><tbody id="miniBody"></tbody></table></div>' +
         '</div>' +
       '</div>' +
       '<div class="panel full-panel" style="margin-top:20px">' +
         '<div class="panel-header"><h3>Material Costs — Billing &amp; Usage</h3><a href="project-stock.html?id=' + projectId + '">View full stock ledger &rarr;</a></div>' +
         '<div class="stat-grid stat-grid-tight" id="materialStatGrid" style="margin-bottom:16px"></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Purchased</th><th>Purchase Cost</th><th>Used</th><th>Usage Cost</th><th>Balance</th></tr></thead><tbody id="materialBody"></tbody></table></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Purchased</th><th class="text-right">Purchase Cost</th><th>Used</th><th class="text-right">Usage Cost</th><th>Balance</th></tr></thead><tbody id="materialBody"></tbody></table></div>' +
       '</div>' +
       '<div class="table-card" style="margin-top:20px">' +
-        '<div class="table-toolbar"><span class="toolbar-meta">All expenses for this project (transport, equipment, permits, utilities &amp; misc)</span></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th></th></tr></thead><tbody id="fullBody"></tbody></table></div>' +
+        '<div class="table-toolbar"><span class="toolbar-meta">Every expense for this project — transport, equipment, permits, utilities, misc &amp; wages</span></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Category</th><th>Description</th><th class="text-right">Amount</th><th></th></tr></thead><tbody id="fullBody"></tbody><tfoot id="fullFoot"></tfoot></table></div>' +
       '</div>';
 
     document.getElementById("fDate").value = Data.isoDate(Data.today());
 
     function renderAll() {
-      var expenses = Data.getExpenses().filter(function (e) { return e.projectId === projectId; })
-        .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      var expenses = Data.getExpenses().filter(function (e) { return e.projectId === projectId; });
+      var wagePayments = Data.getWagePayments().filter(function (p) { return p.projectId === projectId; });
+      var labourers = Data.getLabourers();
 
-      var total = expenses.reduce(function (s, e) { return s + e.amount; }, 0);
+      var merged = expenses.map(function (e) {
+        return { date: e.date, category: e.category, description: e.description, amount: e.amount, id: e.id, isWage: false };
+      }).concat(wagePayments.map(function (p) {
+        var lab = labourers.find(function (l) { return l.id === p.labourerId; });
+        return {
+          date: p.date, category: "wages",
+          description: (p.type === "advance" ? "Advance to " : "Wage payment to ") + (lab ? lab.name : "labourer") + (p.notes ? " — " + p.notes : ""),
+          amount: p.amount, id: p.id, isWage: true
+        };
+      })).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+
+      var total = merged.reduce(function (s, e) { return s + e.amount; }, 0);
       var byCat = {};
-      expenses.forEach(function (e) { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
+      merged.forEach(function (e) { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
 
       document.getElementById("statGrid").innerHTML =
-        '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(total) + '</div><div class="stat-label">Total expenses</div></div>' +
-        '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("fileText") + '</div><div class="stat-value">' + expenses.length + '</div><div class="stat-label">Entries logged</div></div>' +
-        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("calendar") + '</div><div class="stat-value">' + (expenses[0] ? Data.displayDate(expenses[0].date) : "—") + '</div><div class="stat-label">Most recent</div></div>';
+        '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(total) + '</div><div class="stat-label">Total expenses (incl. wages)</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("fileText") + '</div><div class="stat-value">' + merged.length + '</div><div class="stat-label">Entries logged</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("calendar") + '</div><div class="stat-value">' + (merged[0] ? Data.displayDate(merged[0].date) : "—") + '</div><div class="stat-label">Most recent</div></div>';
 
       Charts.renderDonutChart(document.getElementById("catChart"), Object.keys(byCat).map(function (k) {
         return { label: categoryLabels[k] || k, value: byCat[k] };
@@ -129,32 +141,37 @@
             return '<tr>' +
               '<td><strong>' + r.material.name + '</strong></td>' +
               '<td>' + r.purchasedQty + ' ' + r.material.unit + '</td>' +
-              '<td class="total-amount">₹' + Charts.fmtCompact(r.purchaseCost) + '</td>' +
+              '<td class="total-amount text-right">₹' + Charts.fmtCompact(r.purchaseCost) + '</td>' +
               '<td>' + r.usedQty + ' ' + r.material.unit + '</td>' +
-              '<td class="total-amount">₹' + Charts.fmtCompact(r.usageCost) + '</td>' +
+              '<td class="total-amount text-right">₹' + Charts.fmtCompact(r.usageCost) + '</td>' +
               '<td>' + r.balanceQty + ' ' + r.material.unit + '</td>' +
             '</tr>';
           }).join("")
         : '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("box") + '<p>No material activity for this project yet.</p></div></td></tr>';
 
-      document.getElementById("expCount").textContent = expenses.length;
-      document.getElementById("miniBody").innerHTML = expenses.slice(0, 6).map(function (e) {
-        return '<tr><td>' + Data.displayDate(e.date) + '</td><td><span class="chip ' + categoryChip[e.category] + '">' + categoryLabels[e.category] + '</span></td><td class="total-amount">₹' + e.amount + '</td></tr>';
+      document.getElementById("expCount").textContent = merged.length;
+      document.getElementById("miniBody").innerHTML = merged.slice(0, 6).map(function (e) {
+        return '<tr><td>' + Data.displayDate(e.date) + '</td><td><span class="chip ' + categoryChip[e.category] + '">' + categoryLabels[e.category] + '</span></td><td class="total-amount text-right">₹' + e.amount + '</td></tr>';
       }).join("") || '<tr><td colspan="3"><div class="empty-state compact">' + App.svg("wallet") + '<p>No expenses yet.</p></div></td></tr>';
 
       var fullBody = document.getElementById("fullBody");
-      if (!expenses.length) {
+      var fullFoot = document.getElementById("fullFoot");
+      if (!merged.length) {
         fullBody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("wallet") + '<p>No expenses logged for this project yet.</p></div></td></tr>';
+        fullFoot.innerHTML = "";
       } else {
-        fullBody.innerHTML = expenses.map(function (e) {
+        fullBody.innerHTML = merged.map(function (e) {
           return '<tr>' +
             '<td>' + Data.displayDate(e.date) + '</td>' +
             '<td><span class="chip ' + categoryChip[e.category] + '">' + categoryLabels[e.category] + '</span></td>' +
-            '<td class="desc-cell">' + (e.description || "—") + '</td>' +
-            '<td class="total-amount">₹' + e.amount + '</td>' +
-            (canDelete ? '<td><button class="action-trigger" data-del="' + e.id + '">' + App.svg("trash") + '</button></td>' : '<td></td>') +
+            '<td><span class="desc-cell">' + (e.description || "—") + '</span></td>' +
+            '<td class="total-amount text-right">₹' + e.amount + '</td>' +
+            (e.isWage
+              ? '<td><span class="desc-cell">' + App.svg("coins") + ' via Wages tab</span></td>'
+              : (canDelete ? '<td><button class="action-trigger" data-del="' + e.id + '">' + App.svg("trash") + '</button></td>' : '<td></td>')) +
           '</tr>';
         }).join("");
+        fullFoot.innerHTML = '<tr class="table-total-row"><td colspan="3">Total (all categories)</td><td class="total-amount text-right">₹' + total.toLocaleString("en-IN") + '</td><td></td></tr>';
       }
     }
 

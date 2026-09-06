@@ -58,6 +58,13 @@
           <div id="expenseChart"></div>
         </div>
       </div>
+
+      <div class="panel full-panel" style="margin-top:20px">
+        <div class="panel-header">
+          <h3>Labour Works — Days Worked (Top 10)</h3>
+        </div>
+        <div id="labourChart"></div>
+      </div>
     </main>
   </div>
 </div>
@@ -105,9 +112,9 @@
         '<span class="module-sub">Active workforce</span></span>' +
       '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
     '</a>' +
-    '<a class="module-card c3" href="materials.html">' +
-      '<span class="module-icon">' + App.svg("box") + '</span>' +
-      '<span class="module-info"><span class="module-label">Materials</span>' +
+    '<a class="module-card c3" href="godown.html">' +
+      '<span class="module-icon">' + App.svg("warehouse") + '</span>' +
+      '<span class="module-info"><span class="module-label">Godown</span>' +
         '<span class="module-value">' + Data.getMaterials().length + '</span>' +
         '<span class="module-sub">' + alerts.length + ' low-stock alert(s)</span></span>' +
       '<span class="module-arrow">' + App.svg("arrowRight") + '</span>' +
@@ -185,6 +192,17 @@
   Charts.renderDonutChart(document.getElementById("expenseChart"), Object.keys(expenseTotals).map(function (k) {
     return { label: categoryLabels[k] || k, value: expenseTotals[k] };
   }), { centerLabel: "Expenses", formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
+
+  var visibleProjectIds = projects.map(function (p) { return p.id; });
+  var daysWorkedByLabourer = {};
+  Data.getAttendance().filter(function (a) { return visibleProjectIds.indexOf(a.projectId) !== -1; }).forEach(function (a) {
+    daysWorkedByLabourer[a.labourerId] = (daysWorkedByLabourer[a.labourerId] || 0) + a.daysWorked;
+  });
+  var labourChartItems = Object.keys(daysWorkedByLabourer).map(function (labId) {
+    var lab = Data.getLabourers().find(function (l) { return l.id === labId; });
+    return { label: lab ? lab.name.split(" ")[0] : labId, value: daysWorkedByLabourer[labId] };
+  }).sort(function (a, b) { return b.value - a.value; }).slice(0, 10);
+  Charts.renderBarChart(document.getElementById("labourChart"), labourChartItems, { formatValue: function (v) { return v + " days"; } });
 </script>
 </body>
 </html>

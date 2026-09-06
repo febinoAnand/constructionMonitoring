@@ -26,35 +26,48 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="payModal">
+<div class="modal-overlay" id="attEditModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Record Wage Payment</h3><p>Advance or settlement payment to a labourer.</p></div>
-      <button class="modal-close" id="closePayModal">&times;</button>
+      <div><h3>Edit Attendance Entry</h3><p>Adjust this attendance record.</p></div>
+      <button class="modal-close" id="closeAttEditModal">&times;</button>
     </div>
     <div class="modal-body">
-      <form id="payForm">
+      <form id="attEditForm">
+        <input type="hidden" id="aeId">
         <div class="field-grid">
-          <div class="field full">
-            <label>Labourer <span class="req">*</span></label>
-            <div class="combo-wrap" id="payComboWrap">
-              <input type="text" id="payLabInput" placeholder="Search labourer...">
-              <div class="combo-panel" id="payComboPanel"></div>
-              <input type="hidden" id="payLabId">
-            </div>
-          </div>
-          <div class="field"><label>Type</label>
-            <select id="payType"><option value="advance">Advance</option><option value="payment">Payment (settlement)</option></select>
-          </div>
-          <div class="field"><label>Amount (₹) <span class="req">*</span></label><input type="number" id="payAmount" min="0" required></div>
-          <div class="field"><label>Date</label><input type="date" id="payDate"></div>
-          <div class="field full"><label>Notes</label><input type="text" id="payNotes"></div>
+          <div class="field"><label>Date</label><input type="date" id="aeDate"></div>
+          <div class="field"><label>Days Worked</label><select id="aeDays"><option value="1">Full day (1.0)</option><option value="0.5">Half day (0.5)</option><option value="1.5">Overtime (1.5)</option></select></div>
+          <div class="field"><label>Wage Rate (₹/day)</label><input type="number" id="aeRate" min="0"></div>
+          <div class="field"><label>Status</label><select id="aeStatus"><option value="present">Present</option><option value="absent">Absent</option></select></div>
+          <div class="field full"><label>Notes</label><input type="text" id="aeNotes"></div>
         </div>
       </form>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-outline" id="cancelPayModal">Cancel</button>
-      <button class="btn btn-primary" id="savePayBtn">Save Payment</button>
+      <button class="btn btn-outline" id="cancelAttEditModal">Cancel</button>
+      <button class="btn btn-primary" id="saveAttEditBtn">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="attDownloadModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Download Attendance History</h3><p>Choose a date range to export.</p></div>
+      <button class="modal-close" id="closeAttDownloadModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="attDownloadForm">
+        <div class="field-grid">
+          <div class="field"><label>From Date</label><input type="date" id="adlFrom"></div>
+          <div class="field"><label>To Date</label><input type="date" id="adlTo"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelAttDownloadModal">Cancel</button>
+      <button class="btn btn-primary" id="confirmAttDownloadBtn">Download</button>
     </div>
   </div>
 </div>
@@ -78,6 +91,10 @@
 
     var canCreate = App.can("labour", "create");
     var canDelete = App.can("labour", "delete");
+    var canEditAtt = App.can("labour", "update");
+    var PAGE_SIZE = 10;
+    var attPage = 1;
+    var attFrom = "", attTo = "";
 
     document.getElementById("pageBody").innerHTML =
       (canCreate ?
@@ -98,23 +115,25 @@
         '</form>' +
       '</div>' : '') +
       '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
-      '<div class="panel-grid">' +
-        '<div class="panel">' +
-          '<div class="panel-header"><h3>Attendance History</h3><span class="panel-tag" id="attCount"></span></div>' +
-          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Labourer</th><th>Days</th><th>Amount</th>' + (canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="attBody"></tbody></table></div>' +
-        '</div>' +
-        '<div class="panel">' +
-          '<div class="panel-header"><h3>Wage Payments</h3>' + (canCreate ? '<button class="btn btn-outline" id="addPayBtn" style="padding:7px 14px;font-size:12.5px">+ Record Payment</button>' : '') + '</div>' +
-          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Labourer</th><th>Type</th><th>Amount</th></tr></thead><tbody id="payBody"></tbody></table></div>' +
-        '</div>' +
+      '<div class="panel full-panel">' +
+        '<div class="panel-header"><h3>Labour Works — Days Worked by Labourer</h3></div>' +
+        '<div id="labourWorkChart"></div>' +
       '</div>' +
-      '<div class="panel full-panel" style="margin-top:20px">' +
-        '<div class="panel-header"><h3>Wage Summary by Labourer</h3></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Labourer</th><th>Skill</th><th>Days Worked</th><th>Earned</th><th>Paid</th><th>Owed</th></tr></thead><tbody id="summaryBody"></tbody></table></div>' +
-      '</div>';
+      '<div class="panel full-panel">' +
+        '<div class="panel-header"><h3>Attendance History</h3><span class="panel-tag" id="attCount"></span></div>' +
+        '<form class="inline-add-form" id="attFilterForm" style="padding:0 20px 14px">' +
+          '<div class="field"><label>From</label><input type="date" id="attFromInput"></div>' +
+          '<div class="field"><label>To</label><input type="date" id="attToInput"></div>' +
+          '<button type="submit" class="btn btn-outline" style="padding:9px 16px">Apply</button>' +
+          '<button type="button" class="btn btn-outline" id="attFilterClear" style="padding:9px 16px">Clear</button>' +
+        '</form>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Labourer</th><th>Days</th><th>Amount</th>' + (canEditAtt || canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="attBody"></tbody></table></div>' +
+        '<div class="panel-footer-row" style="justify-content:space-between" id="attPager"></div>' +
+        '<div class="panel-footer-row"><button class="btn btn-outline" id="attDownloadBtn">' + App.svg("download") + ' Download</button></div>' +
+      '</div>' +
+      '<p class="section-subheading" style="margin-top:14px">Wage payments and the per-labourer wage summary have moved to the <a href="project-wages.html?id=' + projectId + '">Wages</a> tab.</p>';
 
     if (document.getElementById("attDate")) document.getElementById("attDate").value = Data.isoDate(Data.today());
-    document.getElementById("payDate").value = Data.isoDate(Data.today());
 
     var activeLabourers = Data.getLabourers().filter(function (l) { return l.isActive; });
 
@@ -135,83 +154,72 @@
       input.addEventListener("input", function () { hidden.value = ""; });
     }
     setupCombo("attLabInput", "attComboPanel", "attComboWrap", "attLabId");
-    setupCombo("payLabInput", "payComboPanel", "payComboWrap", "payLabId");
-
     function renderStats() {
       var attendance = Data.getAttendance().filter(function (a) { return a.projectId === projectId; });
       var uniqueLabourers = new Set(attendance.map(function (a) { return a.labourerId; })).size;
-      var wagesOwed = Business.getWagesDueTotal(projectId);
-      var wagesPaid = Data.getWagePayments().filter(function (p) { return p.projectId === projectId; }).reduce(function (s, p) { return s + p.amount; }, 0);
+      var halfDays = attendance.filter(function (a) { return a.daysWorked < 1; }).length;
       document.getElementById("statGrid").innerHTML =
         '<div class="stat-card"><div class="stat-icon icon-amber">' + App.svg("people") + '</div><div class="stat-value">' + uniqueLabourers + '</div><div class="stat-label">Labourers worked here</div></div>' +
         '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("calendar") + '</div><div class="stat-value">' + attendance.length + '</div><div class="stat-label">Attendance entries</div></div>' +
-        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("coins") + '</div><div class="stat-value">₹' + Charts.fmtCompact(wagesPaid) + '</div><div class="stat-label">Wages paid</div></div>' +
-        '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(wagesOwed) + '</div><div class="stat-label">Wages owed</div></div>';
+        '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("clock") + '</div><div class="stat-value">' + halfDays + '</div><div class="stat-label">Half-day entries</div></div>';
+
+      var daysByLabourer = {};
+      attendance.forEach(function (a) {
+        daysByLabourer[a.labourerId] = (daysByLabourer[a.labourerId] || 0) + a.daysWorked;
+      });
+      var chartItems = Object.keys(daysByLabourer).map(function (labId) {
+        var lab = Data.getLabourers().find(function (l) { return l.id === labId; });
+        return { label: lab ? lab.name.split(" ")[0] : labId, value: daysByLabourer[labId] };
+      }).sort(function (a, b) { return b.value - a.value; }).slice(0, 10);
+      Charts.renderBarChart(document.getElementById("labourWorkChart"), chartItems, { formatValue: function (v) { return v + " days"; } });
     }
 
     function renderAttendance() {
-      var attendance = Data.getAttendance().filter(function (a) { return a.projectId === projectId; })
-        .sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 40);
-      document.getElementById("attCount").textContent = attendance.length + " shown";
+      var all = Data.getAttendance().filter(function (a) {
+        if (a.projectId !== projectId) return false;
+        if (attFrom && a.date < attFrom) return false;
+        if (attTo && a.date > attTo) return false;
+        return true;
+      }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      document.getElementById("attCount").textContent = all.length + " entries";
+
+      var totalPages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
+      attPage = Math.min(attPage, totalPages);
+      var pageItems = all.slice((attPage - 1) * PAGE_SIZE, attPage * PAGE_SIZE);
+
       var body = document.getElementById("attBody");
-      if (!attendance.length) {
-        body.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("calendar") + '<p>No attendance marked yet.</p></div></td></tr>';
-        return;
+      var showActions = canEditAtt || canDelete;
+      if (!pageItems.length) {
+        body.innerHTML = '<tr><td colspan="' + (showActions ? 5 : 4) + '"><div class="empty-state compact">' + App.svg("calendar") + '<p>No attendance recorded in this range.</p></div></td></tr>';
+      } else {
+        body.innerHTML = pageItems.map(function (a) {
+          var lab = Data.getLabourers().find(function (l) { return l.id === a.labourerId; });
+          return '<tr>' +
+            '<td>' + Data.displayDate(a.date) + '</td>' +
+            '<td>' + (lab ? lab.name : "—") + '</td>' +
+            '<td>' + a.daysWorked + '</td>' +
+            '<td>₹' + Math.round(a.daysWorked * a.wageRate) + '</td>' +
+            (showActions ? '<td><div class="action-buttons-row">' +
+              (canEditAtt ? '<button class="action-trigger" data-edit-att="' + a.id + '">' + App.svg("edit") + '</button>' : "") +
+              (canDelete ? '<button class="action-trigger" data-del-att="' + a.id + '">' + App.svg("trash") + '</button>' : "") +
+            '</div></td>' : '') +
+          '</tr>';
+        }).join("");
       }
-      body.innerHTML = attendance.map(function (a) {
-        var lab = Data.getLabourers().find(function (l) { return l.id === a.labourerId; });
-        return '<tr>' +
-          '<td>' + Data.displayDate(a.date) + '</td>' +
-          '<td>' + (lab ? lab.name : "—") + '</td>' +
-          '<td>' + a.daysWorked + '</td>' +
-          '<td>₹' + Math.round(a.daysWorked * a.wageRate) + '</td>' +
-          (canDelete ? '<td><button class="action-trigger" data-del-att="' + a.id + '">' + App.svg("trash") + '</button></td>' : '') +
-        '</tr>';
-      }).join("");
+
+      document.getElementById("attPager").innerHTML =
+        '<span class="desc-cell">Page ' + attPage + ' of ' + totalPages + '</span>' +
+        '<span style="display:flex;gap:8px">' +
+          '<button class="btn btn-outline" id="attPrev" style="padding:7px 14px" ' + (attPage <= 1 ? "disabled" : "") + '>Prev</button>' +
+          '<button class="btn btn-outline" id="attNext" style="padding:7px 14px" ' + (attPage >= totalPages ? "disabled" : "") + '>Next</button>' +
+        '</span>';
+      var prevBtn = document.getElementById("attPrev");
+      var nextBtn = document.getElementById("attNext");
+      if (prevBtn) prevBtn.addEventListener("click", function () { attPage--; renderAttendance(); });
+      if (nextBtn) nextBtn.addEventListener("click", function () { attPage++; renderAttendance(); });
     }
 
-    function renderPayments() {
-      var payments = Data.getWagePayments().filter(function (p) { return p.projectId === projectId; })
-        .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
-      var body = document.getElementById("payBody");
-      if (!payments.length) {
-        body.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("coins") + '<p>No payments recorded yet.</p></div></td></tr>';
-        return;
-      }
-      body.innerHTML = payments.map(function (p) {
-        var lab = Data.getLabourers().find(function (l) { return l.id === p.labourerId; });
-        return '<tr>' +
-          '<td>' + Data.displayDate(p.date) + '</td>' +
-          '<td>' + (lab ? lab.name : "—") + '</td>' +
-          '<td><span class="chip ' + (p.type === "advance" ? "chip-amber" : "chip-green") + '">' + (p.type === "advance" ? "Advance" : "Payment") + '</span></td>' +
-          '<td class="total-amount">₹' + p.amount + '</td>' +
-        '</tr>';
-      }).join("");
-    }
-
-    function renderSummary() {
-      var attendance = Data.getAttendance().filter(function (a) { return a.projectId === projectId; });
-      var labIds = Array.from(new Set(attendance.map(function (a) { return a.labourerId; })));
-      var body = document.getElementById("summaryBody");
-      if (!labIds.length) {
-        body.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("people") + '<p>No labourers have worked on this project yet.</p></div></td></tr>';
-        return;
-      }
-      body.innerHTML = labIds.map(function (id) {
-        var lab = Data.getLabourers().find(function (l) { return l.id === id; });
-        var sum = Business.getWageSummary(id, { projectId: projectId });
-        return '<tr>' +
-          '<td>' + (lab ? lab.name : "—") + '</td>' +
-          '<td><span class="chip chip-amber">' + (lab ? lab.skill : "") + '</span></td>' +
-          '<td>' + sum.daysWorked + '</td>' +
-          '<td>₹' + Math.round(sum.earned) + '</td>' +
-          '<td>₹' + Math.round(sum.paid) + '</td>' +
-          '<td class="total-amount">₹' + Math.round(sum.owed) + '</td>' +
-        '</tr>';
-      }).join("");
-    }
-
-    function renderAll() { renderStats(); renderAttendance(); renderPayments(); renderSummary(); }
+    function renderAll() { renderStats(); renderAttendance(); }
 
     var attFormEl = document.getElementById("attForm");
     if (attFormEl) attFormEl.addEventListener("submit", function (e) {
@@ -229,37 +237,78 @@
     });
 
     document.getElementById("attBody").addEventListener("click", function (e) {
-      var btn = e.target.closest("[data-del-att]");
-      if (!btn) return;
-      Data.saveAttendance(Data.getAttendance().filter(function (a) { return a.id !== btn.getAttribute("data-del-att"); }));
-      App.showToast("Attendance entry removed");
+      var del = e.target.closest("[data-del-att]");
+      if (del) {
+        Data.saveAttendance(Data.getAttendance().filter(function (a) { return a.id !== del.getAttribute("data-del-att"); }));
+        App.showToast("Attendance entry removed");
+        renderAll();
+        return;
+      }
+      var edit = e.target.closest("[data-edit-att]");
+      if (edit) { openAttEditModal(edit.getAttribute("data-edit-att")); return; }
+    });
+
+    document.getElementById("attFilterForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      attFrom = document.getElementById("attFromInput").value;
+      attTo = document.getElementById("attToInput").value;
+      attPage = 1;
+      renderAttendance();
+    });
+    document.getElementById("attFilterClear").addEventListener("click", function () {
+      document.getElementById("attFromInput").value = "";
+      document.getElementById("attToInput").value = "";
+      attFrom = ""; attTo = ""; attPage = 1;
+      renderAttendance();
+    });
+
+    var attEditModal = document.getElementById("attEditModal");
+    function openAttEditModal(id) {
+      var a = Data.getAttendance().find(function (x) { return x.id === id; });
+      if (!a) return;
+      document.getElementById("aeId").value = a.id;
+      document.getElementById("aeDate").value = a.date;
+      document.getElementById("aeDays").value = a.daysWorked;
+      document.getElementById("aeRate").value = a.wageRate;
+      document.getElementById("aeStatus").value = a.status || "present";
+      document.getElementById("aeNotes").value = a.notes || "";
+      attEditModal.classList.add("show");
+    }
+    function closeAttEditModal() { attEditModal.classList.remove("show"); }
+    document.getElementById("closeAttEditModal").addEventListener("click", closeAttEditModal);
+    document.getElementById("cancelAttEditModal").addEventListener("click", closeAttEditModal);
+    attEditModal.addEventListener("click", function (e) { if (e.target === attEditModal) closeAttEditModal(); });
+    document.getElementById("saveAttEditBtn").addEventListener("click", function () {
+      var id = document.getElementById("aeId").value;
+      var all = Data.getAttendance().map(function (x) {
+        if (x.id !== id) return x;
+        return Object.assign({}, x, {
+          date: document.getElementById("aeDate").value,
+          daysWorked: Number(document.getElementById("aeDays").value),
+          wageRate: Number(document.getElementById("aeRate").value) || x.wageRate,
+          status: document.getElementById("aeStatus").value,
+          notes: document.getElementById("aeNotes").value.trim()
+        });
+      });
+      Data.saveAttendance(all);
+      App.showToast("Attendance entry updated");
+      closeAttEditModal();
       renderAll();
     });
 
-    var payModal = document.getElementById("payModal");
-    var addPayBtnEl = document.getElementById("addPayBtn");
-    if (addPayBtnEl) addPayBtnEl.addEventListener("click", function () { payModal.classList.add("show"); });
-    document.getElementById("closePayModal").addEventListener("click", function () { payModal.classList.remove("show"); });
-    document.getElementById("cancelPayModal").addEventListener("click", function () { payModal.classList.remove("show"); });
-    payModal.addEventListener("click", function (e) { if (e.target === payModal) payModal.classList.remove("show"); });
-
-    document.getElementById("savePayBtn").addEventListener("click", function () {
-      var labId = document.getElementById("payLabId").value;
-      var amount = Number(document.getElementById("payAmount").value);
-      if (!labId || !amount) { App.showToast("Pick a labourer and enter an amount", true); return; }
-      var payments = Data.getWagePayments();
-      payments.push({
-        id: Data.uid("wp"), labourerId: labId, projectId: projectId,
-        amount: amount, type: document.getElementById("payType").value,
-        date: document.getElementById("payDate").value, notes: document.getElementById("payNotes").value.trim()
-      });
-      Data.saveWagePayments(payments);
-      App.showToast("Payment recorded");
-      document.getElementById("payForm").reset();
-      document.getElementById("payLabId").value = "";
-      document.getElementById("payDate").value = Data.isoDate(Data.today());
-      payModal.classList.remove("show");
-      renderAll();
+    var attDownloadModal = document.getElementById("attDownloadModal");
+    document.getElementById("attDownloadBtn").addEventListener("click", function () {
+      document.getElementById("adlFrom").value = attFrom || "";
+      document.getElementById("adlTo").value = attTo || Data.isoDate(Data.today());
+      attDownloadModal.classList.add("show");
+    });
+    function closeAttDownloadModal() { attDownloadModal.classList.remove("show"); }
+    document.getElementById("closeAttDownloadModal").addEventListener("click", closeAttDownloadModal);
+    document.getElementById("cancelAttDownloadModal").addEventListener("click", closeAttDownloadModal);
+    attDownloadModal.addEventListener("click", function (e) { if (e.target === attDownloadModal) closeAttDownloadModal(); });
+    document.getElementById("confirmAttDownloadBtn").addEventListener("click", function () {
+      closeAttDownloadModal();
+      App.showToast("Your file is downloading...");
     });
 
     renderAll();

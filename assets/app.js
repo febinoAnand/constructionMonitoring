@@ -300,7 +300,12 @@
     briefcase: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
     shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
     columns: '<rect x="3" y="4" width="6" height="16" rx="1"/><rect x="9" y="4" width="6" height="10" rx="1"/><rect x="15" y="4" width="6" height="13" rx="1"/>',
-    userPlus: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/>'
+    userPlus: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/>',
+    lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    mail: '<path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><polyline points="22 6 12 13 2 6"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+    key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2l-9.6 9.6"/><path d="M15.5 7.5L19 11"/><path d="M12 11l4 4"/>',
+    warehouse: '<path d="M3 21V10l9-6 9 6v11"/><path d="M3 21h18"/><path d="M9 21v-7h6v7"/>'
   };
 
   function svg(name, extraClass) {
@@ -315,7 +320,7 @@
     { key: "projects", href: "projects.html", label: "Projects", icon: "building" },
     { section: "Workforce & Materials" },
     { key: "labour", href: "labour-list.html", label: "Labourers", icon: "people", require: "labour:read" },
-    { key: "materials", href: "materials.html", label: "Materials", icon: "box", require: "stock:read" },
+    { key: "materials", href: "godown.html", label: "Godown", icon: "warehouse", require: "stock:read" },
     { section: "Business" },
     { key: "customers", href: "customers.html", label: "Customers", icon: "briefcase", require: "customers:read" },
     { section: "Account" },
@@ -390,6 +395,7 @@
     { key: "overview", href: "project-overview.html", label: "Overview", icon: "dashboard" },
     { key: "tasks", href: "project-tasks.html", label: "Tasks", icon: "columns" },
     { key: "labour", href: "project-labour.html", label: "Labour", icon: "people" },
+    { key: "wages", href: "project-wages.html", label: "Wages", icon: "coins" },
     { key: "stock", href: "project-stock.html", label: "Stock", icon: "box" },
     { key: "expenses", href: "project-expenses.html", label: "Expenses", icon: "wallet" },
     { key: "reports", href: "project-reports.html", label: "Reports", icon: "fileText" },

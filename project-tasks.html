@@ -26,6 +26,30 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="editTaskTableModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Edit Task</h3><p>Update the core task details.</p></div>
+      <button class="modal-close" id="closeEditTaskTableModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="editTaskTableForm">
+        <input type="hidden" id="ettId">
+        <div class="field-grid">
+          <div class="field full"><label>Title</label><input type="text" id="ettTitle"></div>
+          <div class="field full"><label>Assignee</label><input type="text" id="ettAssignee"></div>
+          <div class="field"><label>Date</label><input type="date" id="ettDate"></div>
+          <div class="field full"><label>Notes</label><textarea id="ettNotes" rows="4"></textarea></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelEditTaskTableModal">Cancel</button>
+      <button class="btn btn-primary" id="saveEditTaskTableBtn">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <script src="assets/data.js"></script>
 <script src="assets/business.js"></script>
 <script src="assets/app.js"></script>
@@ -171,16 +195,17 @@
     function renderTable() {
       var defs = fieldDefs();
       var head = document.getElementById("taskTableHead");
-      head.innerHTML = '<th>Task</th><th>Assignee</th><th>Date</th><th>Status</th>' +
+      var showActions = canUpdate || canDelete;
+      head.innerHTML = '<th>Task</th><th>Assignee</th><th>Date</th><th>Status</th><th>Completed</th>' +
         defs.map(function (f) { return '<th>' + f.label + '</th>'; }).join("") +
-        (canDelete ? '<th></th>' : '');
+        (showActions ? '<th></th>' : '');
 
       var tasks = Data.getTasks().filter(function (t) { return t.projectId === projectId; })
         .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
       document.getElementById("taskCount").textContent = tasks.length + " task(s)";
       var body = document.getElementById("taskTableBody");
       if (!tasks.length) {
-        body.innerHTML = '<tr><td colspan="' + (5 + defs.length) + '"><div class="empty-state compact">' + App.svg("columns") + '<p>No tasks yet.</p></div></td></tr>';
+        body.innerHTML = '<tr><td colspan="' + (6 + defs.length) + '"><div class="empty-state compact">' + App.svg("columns") + '<p>No tasks yet.</p></div></td></tr>';
         return;
       }
       body.innerHTML = tasks.map(function (t) {
@@ -189,8 +214,12 @@
           '<td>' + (t.assignee || "—") + '</td>' +
           '<td>' + Data.displayDate(t.date) + '</td>' +
           '<td><span class="status-pill ' + statusPillClass(t.status) + '">' + statusMeta(t.status).label + '</span></td>' +
+          '<td>' + (t.completedAt ? Data.displayDate(t.completedAt) : '<span class="desc-cell">—</span>') + '</td>' +
           defs.map(function (f) { var v = t.customFields && t.customFields[f.key]; return '<td>' + (v === undefined || v === null || v === "" ? "—" : v) + '</td>'; }).join("") +
-          (canDelete ? '<td><button class="action-trigger" data-del="' + t.id + '">' + App.svg("trash") + '</button></td>' : '') +
+          (showActions ? '<td><div class="action-buttons-row">' +
+            (canUpdate ? '<button class="action-trigger" data-edit-task="' + t.id + '">' + App.svg("edit") + '</button>' : "") +
+            (canDelete ? '<button class="action-trigger" data-del="' + t.id + '">' + App.svg("trash") + '</button>' : "") +
+          '</div></td>' : '') +
         '</tr>';
       }).join("");
     }
@@ -280,8 +309,11 @@
       var tasks = Data.getTasks();
       var task = tasks.find(function (t) { return t.id === taskId; });
       if (!task || task.status === newStatus) return;
+      var oldStatus = task.status;
       task.status = newStatus;
+      if (newStatus === "done" && !task.completedAt) task.completedAt = Data.isoDate(Data.today());
       Data.saveTasks(tasks);
+      Data.addTaskActivity(taskId, "Status changed from " + statusMeta(oldStatus).label + " to " + statusMeta(newStatus).label);
       if (newStatus === "done") syncCompletionReport(task);
       renderAll();
     }
@@ -307,6 +339,39 @@
       }
       var open = e.target.closest("[data-open-task]");
       if (open) { window.location.href = "project-task-detail.html?id=" + projectId + "&task=" + open.getAttribute("data-open-task"); return; }
+      var editTask = e.target.closest("[data-edit-task]");
+      if (editTask) { openEditTaskTableModal(editTask.getAttribute("data-edit-task")); return; }
+    });
+
+    var editTaskTableModal = document.getElementById("editTaskTableModal");
+    function openEditTaskTableModal(taskId) {
+      var t = Data.getTasks().find(function (x) { return x.id === taskId; });
+      if (!t) return;
+      document.getElementById("ettId").value = t.id;
+      document.getElementById("ettTitle").value = t.title;
+      document.getElementById("ettAssignee").value = t.assignee || "";
+      document.getElementById("ettDate").value = t.date || "";
+      document.getElementById("ettNotes").value = t.notes || "";
+      editTaskTableModal.classList.add("show");
+    }
+    function closeEditTaskTableModal() { editTaskTableModal.classList.remove("show"); }
+    document.getElementById("closeEditTaskTableModal").addEventListener("click", closeEditTaskTableModal);
+    document.getElementById("cancelEditTaskTableModal").addEventListener("click", closeEditTaskTableModal);
+    editTaskTableModal.addEventListener("click", function (e) { if (e.target === editTaskTableModal) closeEditTaskTableModal(); });
+    document.getElementById("saveEditTaskTableBtn").addEventListener("click", function () {
+      var id = document.getElementById("ettId").value;
+      var tasks = Data.getTasks();
+      var t = tasks.find(function (x) { return x.id === id; });
+      if (!t) return;
+      t.title = document.getElementById("ettTitle").value.trim() || t.title;
+      t.assignee = document.getElementById("ettAssignee").value.trim();
+      t.date = document.getElementById("ettDate").value;
+      t.notes = document.getElementById("ettNotes").value.trim();
+      Data.saveTasks(tasks);
+      Data.addTaskActivity(id, "Task details edited");
+      App.showToast("Task updated");
+      closeEditTaskTableModal();
+      renderAll();
     });
 
     document.getElementById("pageBody").addEventListener("keydown", function (e) {
@@ -315,12 +380,17 @@
       var title = input.value.trim();
       if (!title) return;
       var statusKey = input.getAttribute("data-quick-add-input");
+      var newTaskId = Data.uid("tk");
       var tasks = Data.getTasks();
+      var me = App.getCurrentUser();
       tasks.push({
-        id: Data.uid("tk"), projectId: projectId, title: title,
-        assignee: "", status: statusKey, date: Data.isoDate(Data.today()), notes: "", customFields: {}
+        id: newTaskId, projectId: projectId, title: title,
+        assignee: "", status: statusKey, date: Data.isoDate(Data.today()), notes: "", customFields: {},
+        createdAt: Data.isoDate(Data.today()), createdBy: me ? me.id : null,
+        completedAt: null, sqft: null, completionCost: null, personsCount: null, personInCharge: "", durationDays: null, materialUsed: ""
       });
       Data.saveTasks(tasks);
+      Data.addTaskActivity(newTaskId, "Task created");
       renderAll();
     });
 

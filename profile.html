@@ -30,7 +30,37 @@
           <div id="assignedList" style="padding:18px 20px"></div>
         </div>
       </div>
+
+      <div class="panel full-panel" style="margin-top:20px">
+        <div class="panel-header">
+          <h3>Security</h3>
+          <button type="button" class="btn btn-outline" id="openChangePasswordBtn" style="padding:8px 16px;font-size:12.5px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Change Password</button>
+        </div>
+        <p class="section-subheading" style="margin:0 20px 18px">Keep your account secure by updating your password periodically.</p>
+      </div>
     </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="changePasswordModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Change Password</h3><p>Update the password for your account.</p></div>
+      <button class="modal-close" id="closeChangePasswordModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="changePasswordForm">
+        <div class="field-grid">
+          <div class="field full"><label>Current Password <span class="req">*</span></label><input type="password" id="cpCurrent" required></div>
+          <div class="field full"><label>New Password <span class="req">*</span></label><input type="password" id="cpNew" required minlength="6"></div>
+          <div class="field full"><label>Confirm New Password <span class="req">*</span></label><input type="password" id="cpConfirm" required minlength="6"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelChangePasswordModal">Cancel</button>
+      <button class="btn btn-primary" id="saveChangePasswordBtn">Update Password</button>
+    </div>
   </div>
 </div>
 
@@ -64,6 +94,25 @@
       return '<div class="activity-item"><div class="activity-dot"></div><div><p><a href="project-overview.html?id=' + p.id + '"><strong>' + p.name + '</strong></a></p><span>' + p.code + ' · ' + (p.clientName || "") + '</span></div></div>';
     }).join("") + '</div>';
   }
+
+  var changePasswordModal = document.getElementById("changePasswordModal");
+  document.getElementById("openChangePasswordBtn").addEventListener("click", function () {
+    document.getElementById("changePasswordForm").reset();
+    changePasswordModal.classList.add("show");
+  });
+  function closeChangePasswordModal() { changePasswordModal.classList.remove("show"); }
+  document.getElementById("closeChangePasswordModal").addEventListener("click", closeChangePasswordModal);
+  document.getElementById("cancelChangePasswordModal").addEventListener("click", closeChangePasswordModal);
+  changePasswordModal.addEventListener("click", function (e) { if (e.target === changePasswordModal) closeChangePasswordModal(); });
+  document.getElementById("saveChangePasswordBtn").addEventListener("click", function () {
+    var newPass = document.getElementById("cpNew").value;
+    var confirm = document.getElementById("cpConfirm").value;
+    if (!document.getElementById("cpCurrent").value) { App.showToast("Enter your current password", true); return; }
+    if (newPass !== confirm) { App.showToast("New password and confirmation don't match", true); return; }
+    if (newPass.length < 6) { App.showToast("Password must be at least 6 characters", true); return; }
+    closeChangePasswordModal();
+    App.showToast("Password updated");
+  });
 </script>
 </body>
 </html>

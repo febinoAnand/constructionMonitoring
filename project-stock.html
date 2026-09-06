@@ -79,7 +79,7 @@
       '</div>' +
       '<div class="panel full-panel">' +
         '<div class="panel-header"><h3>Transaction History</h3><span class="panel-tag" id="txnCount"></span></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Bill No.</th><th>Material</th><th>Type</th><th>Source</th><th>Quantity</th><th>Amount</th><th>Supplier / Notes</th>' + (canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="txnBody"></tbody></table></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Bill No.</th><th>Material</th><th>Type</th><th>Source</th><th>Quantity</th><th class="text-right">Amount</th><th>Supplier / Notes</th>' + (canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="txnBody"></tbody><tfoot id="txnFoot"></tfoot></table></div>' +
       '</div>';
 
     if (document.getElementById("sDate")) document.getElementById("sDate").value = Data.isoDate(Data.today());
@@ -126,14 +126,18 @@
     }
 
     function renderTxns() {
-      var txns = Data.getStockTransactions().filter(function (t) { return t.projectId === projectId; })
-        .sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 40);
+      var allTxns = Data.getStockTransactions().filter(function (t) { return t.projectId === projectId; });
+      var txns = allTxns.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 40);
       document.getElementById("txnCount").textContent = txns.length + " shown";
       var body = document.getElementById("txnBody");
+      var foot = document.getElementById("txnFoot");
       if (!txns.length) {
         body.innerHTML = '<tr><td colspan="9"><div class="empty-state compact">' + App.svg("truck") + '<p>No stock movements recorded yet.</p></div></td></tr>';
+        foot.innerHTML = "";
         return;
       }
+      var billingTotal = allTxns.filter(function (t) { return t.type === "inward"; }).reduce(function (s, t) { return s + t.totalAmount; }, 0);
+      foot.innerHTML = '<tr class="table-total-row"><td colspan="6">Total billing for ' + project.name + '</td><td class="total-amount text-right">₹' + billingTotal.toLocaleString("en-IN") + '</td><td colspan="' + (canDelete ? 2 : 1) + '"></td></tr>';
       body.innerHTML = txns.map(function (t) {
         var mat = materials.find(function (m) { return m.id === t.materialId; });
         var typeChip = t.type === "inward" ? '<span class="chip chip-green">Inward</span>' : t.type === "outward" ? '<span class="chip chip-amber">Outward</span>' : '<span class="chip chip-slate">Adjustment</span>';
@@ -156,8 +160,8 @@
           '<td>' + typeChip + '</td>' +
           '<td>' + sourceHtml + '</td>' +
           '<td>' + t.quantity + ' ' + (mat ? mat.unit : "") + '</td>' +
-          '<td class="total-amount">' + amountHtml + '</td>' +
-          '<td class="desc-cell">' + (t.supplierName || t.notes || "—") + '</td>' +
+          '<td class="total-amount text-right">' + amountHtml + '</td>' +
+          '<td><span class="desc-cell">' + (t.supplierName || t.notes || "—") + '</span></td>' +
           (canDelete ? '<td><button class="action-trigger" data-del="' + t.id + '">' + App.svg("trash") + '</button></td>' : '') +
         '</tr>';
       }).join("");
@@ -174,9 +178,30 @@
       var type = document.getElementById("sType").value;
       var materialId = document.getElementById("sMaterial").value;
       var date = document.getElementById("sDate").value;
-      var isTransfer = type === "inward" && document.getElementById("sSource").value === "transfer";
+      var sourceVal = document.getElementById("sSource").value;
+      var isTransfer = type === "inward" && sourceVal === "transfer";
+      var isFromGodown = type === "inward" && sourceVal === "godown";
 
-      if (isTransfer) {
+      if (isFromGodown) {
+        var godownBalance = Business.getStockBalance(Data.GODOWN_ID, materialId).balance;
+        if (qty > godownBalance) { App.showToast("Godown only has " + godownBalance + " in stock for this material", true); return; }
+        var gTransferId = Data.uid("tr");
+        var gTxns = Data.getStockTransactions();
+        gTxns.push({
+          id: Data.uid("st"), projectId: projectId, materialId: materialId, type: "inward",
+          quantity: qty, ratePerUnit: rate, totalAmount: Math.round(qty * rate), date: date,
+          supplierName: "", invoiceNumber: "", gstPercent: 0, gstAmount: 0, notes: "Received from Godown",
+          source: "godown", sourceProjectId: Data.GODOWN_ID, transferId: gTransferId
+        });
+        gTxns.push({
+          id: Data.uid("st"), projectId: Data.GODOWN_ID, materialId: materialId, type: "outward",
+          quantity: qty, ratePerUnit: rate, totalAmount: Math.round(qty * rate), date: date,
+          supplierName: "", invoiceNumber: "", gstPercent: 0, gstAmount: 0, notes: "Issued to " + project.name,
+          source: "godown", sourceProjectId: projectId, transferId: gTransferId
+        });
+        Data.saveStockTransactions(gTxns);
+        App.showToast("Stock received from godown");
+      } else if (isTransfer) {
         var sourceProjectId = document.getElementById("sSourceProject").value;
         if (!sourceProjectId) { App.showToast("Choose the project to transfer from", true); return; }
         var sourceProjectName = otherProjects.find(function (p) { return p.id === sourceProjectId; }).name;
