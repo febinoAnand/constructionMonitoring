@@ -21,16 +21,18 @@
           <h2>Customers</h2>
           <p>Clients you're building for, and what each one owes.</p>
         </div>
-        <button class="btn btn-primary" id="addBtn">+ Add Customer</button>
       </div>
 
       <div class="stat-grid stat-grid-tight" id="statGrid"></div>
 
       <div class="table-card">
         <div class="table-toolbar">
-          <div class="search-box">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="searchInput" placeholder="Search customers...">
+          <div class="table-toolbar-left">
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="searchInput" placeholder="Search customers...">
+            </div>
+            <button class="btn btn-primary" id="addBtn">+ Add Customer</button>
           </div>
           <span class="toolbar-meta" id="toolbarMeta"></span>
         </div>
@@ -120,7 +122,7 @@
       }
 
       tbody.innerHTML = customers.map(function (c) {
-        var linkedProjects = projects.filter(function (p) { return p.customerId === c.id; });
+        var linkedProjects = projects.filter(function (p) { return p.customerIds && p.customerIds.indexOf(c.id) !== -1; });
         var l = Business.getCustomerLedger(c.id);
         return '<tr>' +
           '<td><a href="customer-detail.html?id=' + c.id + '"><strong>' + c.name + '</strong></a>' + (c.gstin ? '<br><span class="cell-mono">' + c.gstin + '</span>' : '') + '</td>' +

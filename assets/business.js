@@ -146,6 +146,31 @@
     return alerts;
   }
 
+  /* Projects linked to a customer, and customers linked to a project —
+     both sides of the Project.customerIds many-to-many relationship. */
+  function getProjectCustomers(projectId) {
+    var project = window.Data.getProjects().find(function (p) { return p.id === projectId; });
+    if (!project || !project.customerIds) return [];
+    var customers = window.Data.getCustomers();
+    return project.customerIds
+      .map(function (cid) { return customers.find(function (c) { return c.id === cid; }); })
+      .filter(Boolean);
+  }
+
+  function getCustomerProjects(customerId) {
+    return window.Data.getProjects().filter(function (p) {
+      return p.customerIds && p.customerIds.indexOf(customerId) !== -1;
+    });
+  }
+
+  /* Total cash spent (stock + wages paid + other expenses) across every
+     project linked to this customer — what it has cost us to serve them. */
+  function getCustomerTotalExpenses(customerId) {
+    return getCustomerProjects(customerId).reduce(function (sum, p) {
+      return sum + getProjectCost(p.id).totalCashSpent;
+    }, 0);
+  }
+
   /* Balance due FROM the customer = Σ invoices − Σ receipts. The mirror image
      of getProjectCost, which tracks money the company spends. */
   function getCustomerLedger(customerId) {
@@ -212,6 +237,9 @@
     estimateCompletion: estimateCompletion,
     getLowStockAlerts: getLowStockAlerts,
     getWagesDueTotal: getWagesDueTotal,
+    getProjectCustomers: getProjectCustomers,
+    getCustomerProjects: getCustomerProjects,
+    getCustomerTotalExpenses: getCustomerTotalExpenses,
     getCustomerLedger: getCustomerLedger,
     getMaterialCostBreakdown: getMaterialCostBreakdown,
     getProjectStatusColumns: getProjectStatusColumns

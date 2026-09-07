@@ -25,6 +25,52 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="attEditModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Edit Attendance Entry</h3><p>Adjust this attendance record.</p></div>
+      <button class="modal-close" id="closeAttEditModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="attEditForm">
+        <input type="hidden" id="aeId">
+        <div class="field-grid">
+          <div class="field"><label>Date</label><input type="date" id="aeDate"></div>
+          <div class="field"><label>Days Worked</label><select id="aeDays"><option value="1">Full day (1.0)</option><option value="0.5">Half day (0.5)</option><option value="1.5">Overtime (1.5)</option></select></div>
+          <div class="field"><label>Wage Rate (₹/day)</label><input type="number" id="aeRate" min="0"></div>
+          <div class="field"><label>Status</label><select id="aeStatus"><option value="present">Present</option><option value="absent">Absent</option></select></div>
+          <div class="field full"><label>Notes</label><input type="text" id="aeNotes"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelAttEditModal">Cancel</button>
+      <button class="btn btn-primary" id="saveAttEditBtn">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="attDownloadModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Download Attendance History</h3><p>Choose a date range to export.</p></div>
+      <button class="modal-close" id="closeAttDownloadModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="attDownloadForm">
+        <div class="field-grid">
+          <div class="field"><label>From Date</label><input type="date" id="adlFrom"></div>
+          <div class="field"><label>To Date</label><input type="date" id="adlTo"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelAttDownloadModal">Cancel</button>
+      <button class="btn btn-primary" id="confirmAttDownloadBtn">Download</button>
+    </div>
+  </div>
+</div>
+
 <script src="assets/data.js"></script>
 <script src="assets/business.js"></script>
 <script src="assets/app.js"></script>
@@ -43,41 +89,147 @@
     document.getElementById("labMeta").textContent = lab.skill + " · " + (lab.phone || "No phone on file") + " · ₹" + lab.defaultDailyWage + "/day";
 
     var visibleIds = App.visibleProjects().map(function (p) { return p.id; });
-    var sum = Business.getWageSummary(labId);
+    var canEditAtt = App.can("labour", "update");
+    var PAGE_SIZE = 10;
+    var attPage = 1;
+    var attFrom = "", attTo = "";
 
     document.getElementById("pageBody").innerHTML =
       '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
       '<div class="panel-grid">' +
         '<div class="panel">' +
-          '<div class="panel-header"><h3>Attendance History</h3><span class="panel-tag">' + sum.attendance.length + ' entries</span></div>' +
-          '<div class="table-scroll" style="max-height:420px;overflow-y:auto"><table class="data-table"><thead><tr><th>Date</th><th>Project</th><th>Days</th><th>Amount</th></tr></thead><tbody id="attBody"></tbody></table></div>' +
+          '<div class="panel-header"><h3>Attendance History</h3><span class="panel-tag" id="attCount"></span></div>' +
+          '<form class="inline-add-form" id="attFilterForm" style="padding:0 20px 14px">' +
+            '<div class="field"><label>From</label><input type="date" id="attFromInput"></div>' +
+            '<div class="field"><label>To</label><input type="date" id="attToInput"></div>' +
+            '<button type="submit" class="btn btn-outline" style="padding:9px 16px">Apply</button>' +
+            '<button type="button" class="btn btn-outline" id="attFilterClear" style="padding:9px 16px">Clear</button>' +
+          '</form>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Project</th><th>Days</th><th>Amount</th>' + (canEditAtt ? '<th></th>' : '') + '</tr></thead><tbody id="attBody"></tbody></table></div>' +
+          '<div class="panel-footer-row" style="justify-content:space-between" id="attPager"></div>' +
+          '<div class="panel-footer-row"><button class="btn btn-outline" id="attDownloadBtn">' + App.svg("download") + ' Download</button></div>' +
         '</div>' +
         '<div class="panel">' +
-          '<div class="panel-header"><h3>Payment History</h3><span class="panel-tag">' + sum.payments.length + ' entries</span></div>' +
+          '<div class="panel-header"><h3>Payment History</h3><span class="panel-tag" id="payCount"></span></div>' +
           '<div class="table-scroll" style="max-height:420px;overflow-y:auto"><table class="data-table"><thead><tr><th>Date</th><th>Project</th><th>Type</th><th>Amount</th></tr></thead><tbody id="payBody"></tbody></table></div>' +
         '</div>' +
       '</div>';
 
-    document.getElementById("statGrid").innerHTML =
-      '<div class="stat-card"><div class="stat-icon icon-amber">' + App.svg("calendar") + '</div><div class="stat-value">' + sum.daysWorked + '</div><div class="stat-label">Total days worked</div></div>' +
-      '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("trendingUp") + '</div><div class="stat-value">₹' + Charts.fmtCompact(sum.earned) + '</div><div class="stat-label">Total earned</div></div>' +
-      '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("coins") + '</div><div class="stat-value">₹' + Charts.fmtCompact(sum.paid) + '</div><div class="stat-label">Total paid</div></div>' +
-      '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(sum.owed) + '</div><div class="stat-label">Balance owed</div></div>';
+    function renderStats() {
+      var sum = Business.getWageSummary(labId);
+      document.getElementById("statGrid").innerHTML =
+        '<div class="stat-card"><div class="stat-icon icon-amber">' + App.svg("calendar") + '</div><div class="stat-value">' + sum.daysWorked + '</div><div class="stat-label">Total days worked</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("trendingUp") + '</div><div class="stat-value">₹' + Charts.fmtCompact(sum.earned) + '</div><div class="stat-label">Total earned</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("coins") + '</div><div class="stat-value">₹' + Charts.fmtCompact(sum.paid) + '</div><div class="stat-label">Total paid</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(sum.owed) + '</div><div class="stat-label">Balance owed</div></div>';
 
-    var attendance = sum.attendance.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
-    document.getElementById("attBody").innerHTML = attendance.length ? attendance.map(function (a) {
-      var proj = Data.getProjects().find(function (p) { return p.id === a.projectId; });
-      var projLabel = proj ? (visibleIds.indexOf(proj.id) !== -1 ? '<a href="project-labour.html?id=' + proj.id + '">' + proj.name + '</a>' : proj.name) : "—";
-      return '<tr><td>' + Data.displayDate(a.date) + '</td><td>' + projLabel + '</td><td>' + a.daysWorked + '</td><td>₹' + Math.round(a.daysWorked * a.wageRate) + '</td></tr>';
-    }).join("") : '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("calendar") + '<p>No attendance recorded.</p></div></td></tr>';
+      var payments = sum.payments.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      document.getElementById("payCount").textContent = payments.length + " entries";
+      document.getElementById("payBody").innerHTML = payments.length ? payments.map(function (p) {
+        var proj = Data.getProjects().find(function (x) { return x.id === p.projectId; });
+        return '<tr><td>' + Data.displayDate(p.date) + '</td><td>' + (proj ? proj.name : "—") + '</td>' +
+          '<td><span class="chip ' + (p.type === "advance" ? "chip-amber" : "chip-green") + '">' + (p.type === "advance" ? "Advance" : "Payment") + '</span></td>' +
+          '<td class="total-amount">₹' + p.amount + '</td></tr>';
+      }).join("") : '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("coins") + '<p>No payments recorded.</p></div></td></tr>';
+    }
 
-    var payments = sum.payments.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
-    document.getElementById("payBody").innerHTML = payments.length ? payments.map(function (p) {
-      var proj = Data.getProjects().find(function (x) { return x.id === p.projectId; });
-      return '<tr><td>' + Data.displayDate(p.date) + '</td><td>' + (proj ? proj.name : "—") + '</td>' +
-        '<td><span class="chip ' + (p.type === "advance" ? "chip-amber" : "chip-green") + '">' + (p.type === "advance" ? "Advance" : "Payment") + '</span></td>' +
-        '<td class="total-amount">₹' + p.amount + '</td></tr>';
-    }).join("") : '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("coins") + '<p>No payments recorded.</p></div></td></tr>';
+    function renderAttendance() {
+      var all = Business.getWageSummary(labId, { from: attFrom || undefined, to: attTo || undefined }).attendance
+        .slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      document.getElementById("attCount").textContent = all.length + " entries";
+
+      var totalPages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
+      attPage = Math.min(attPage, totalPages);
+      var pageItems = all.slice((attPage - 1) * PAGE_SIZE, attPage * PAGE_SIZE);
+
+      document.getElementById("attBody").innerHTML = pageItems.length ? pageItems.map(function (a) {
+        var proj = Data.getProjects().find(function (p) { return p.id === a.projectId; });
+        var projLabel = proj ? (visibleIds.indexOf(proj.id) !== -1 ? '<a href="project-labour.html?id=' + proj.id + '">' + proj.name + '</a>' : proj.name) : "—";
+        return '<tr><td>' + Data.displayDate(a.date) + '</td><td>' + projLabel + '</td><td>' + a.daysWorked + '</td><td>₹' + Math.round(a.daysWorked * a.wageRate) + '</td>' +
+          (canEditAtt ? '<td><button class="action-trigger" data-edit-att="' + a.id + '">' + App.svg("edit") + '</button></td>' : '') +
+        '</tr>';
+      }).join("") : '<tr><td colspan="' + (canEditAtt ? 5 : 4) + '"><div class="empty-state compact">' + App.svg("calendar") + '<p>No attendance recorded in this range.</p></div></td></tr>';
+
+      document.getElementById("attPager").innerHTML =
+        '<span class="desc-cell">Page ' + attPage + ' of ' + totalPages + '</span>' +
+        '<span style="display:flex;gap:8px">' +
+          '<button class="btn btn-outline" id="attPrev" style="padding:7px 14px" ' + (attPage <= 1 ? "disabled" : "") + '>Prev</button>' +
+          '<button class="btn btn-outline" id="attNext" style="padding:7px 14px" ' + (attPage >= totalPages ? "disabled" : "") + '>Next</button>' +
+        '</span>';
+      var prevBtn = document.getElementById("attPrev");
+      var nextBtn = document.getElementById("attNext");
+      if (prevBtn) prevBtn.addEventListener("click", function () { attPage--; renderAttendance(); });
+      if (nextBtn) nextBtn.addEventListener("click", function () { attPage++; renderAttendance(); });
+    }
+
+    document.getElementById("attFilterForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      attFrom = document.getElementById("attFromInput").value;
+      attTo = document.getElementById("attToInput").value;
+      attPage = 1;
+      renderAttendance();
+    });
+    document.getElementById("attFilterClear").addEventListener("click", function () {
+      document.getElementById("attFromInput").value = "";
+      document.getElementById("attToInput").value = "";
+      attFrom = ""; attTo = ""; attPage = 1;
+      renderAttendance();
+    });
+
+    var attEditModal = document.getElementById("attEditModal");
+    document.getElementById("attBody").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-edit-att]");
+      if (!btn) return;
+      var a = Data.getAttendance().find(function (x) { return x.id === btn.getAttribute("data-edit-att"); });
+      if (!a) return;
+      document.getElementById("aeId").value = a.id;
+      document.getElementById("aeDate").value = a.date;
+      document.getElementById("aeDays").value = a.daysWorked;
+      document.getElementById("aeRate").value = a.wageRate;
+      document.getElementById("aeStatus").value = a.status || "present";
+      document.getElementById("aeNotes").value = a.notes || "";
+      attEditModal.classList.add("show");
+    });
+    function closeAttEditModal() { attEditModal.classList.remove("show"); }
+    document.getElementById("closeAttEditModal").addEventListener("click", closeAttEditModal);
+    document.getElementById("cancelAttEditModal").addEventListener("click", closeAttEditModal);
+    attEditModal.addEventListener("click", function (e) { if (e.target === attEditModal) closeAttEditModal(); });
+    document.getElementById("saveAttEditBtn").addEventListener("click", function () {
+      var id = document.getElementById("aeId").value;
+      var all = Data.getAttendance().map(function (x) {
+        if (x.id !== id) return x;
+        return Object.assign({}, x, {
+          date: document.getElementById("aeDate").value,
+          daysWorked: Number(document.getElementById("aeDays").value),
+          wageRate: Number(document.getElementById("aeRate").value) || x.wageRate,
+          status: document.getElementById("aeStatus").value,
+          notes: document.getElementById("aeNotes").value.trim()
+        });
+      });
+      Data.saveAttendance(all);
+      App.showToast("Attendance entry updated");
+      closeAttEditModal();
+      renderStats();
+      renderAttendance();
+    });
+
+    var attDownloadModal = document.getElementById("attDownloadModal");
+    document.getElementById("attDownloadBtn").addEventListener("click", function () {
+      document.getElementById("adlFrom").value = attFrom || "";
+      document.getElementById("adlTo").value = attTo || Data.isoDate(Data.today());
+      attDownloadModal.classList.add("show");
+    });
+    function closeAttDownloadModal() { attDownloadModal.classList.remove("show"); }
+    document.getElementById("closeAttDownloadModal").addEventListener("click", closeAttDownloadModal);
+    document.getElementById("cancelAttDownloadModal").addEventListener("click", closeAttDownloadModal);
+    attDownloadModal.addEventListener("click", function (e) { if (e.target === attDownloadModal) closeAttDownloadModal(); });
+    document.getElementById("confirmAttDownloadBtn").addEventListener("click", function () {
+      closeAttDownloadModal();
+      App.showToast("Your file is downloading...");
+    });
+
+    renderStats();
+    renderAttendance();
   }
 </script>
 </body>

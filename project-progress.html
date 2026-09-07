@@ -102,7 +102,7 @@
           return '<tr>' +
             '<td>' + Data.displayDate(u.date) + '</td>' +
             '<td><strong>' + u.percentComplete + '%</strong></td>' +
-            '<td class="desc-cell">' + (u.notes || "—") + '</td>' +
+            '<td><span class="desc-cell">' + (u.notes || "—") + '</span></td>' +
             (canDelete ? '<td><button class="action-trigger" data-del="' + u.id + '">' + App.svg("trash") + '</button></td>' : '') +
           '</tr>';
         }).join("");

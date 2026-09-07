@@ -69,12 +69,27 @@
               <option value="cancelled">Cancelled</option>
             </select>
           </div>
-          <div class="field full"><label>Customer</label><select id="fCustomer"><option value="">— No customer linked —</option></select></div>
-          <div class="field full"><label>Client Name (display)</label><input type="text" id="fClient" placeholder="Auto-fills from customer, or type manually"></div>
+          <div class="field full">
+            <label>Customers</label>
+            <div class="multiselect" id="customerMultiselect">
+              <button type="button" class="multiselect-trigger" id="customerTrigger">
+                <span class="multiselect-trigger-text placeholder" id="customerTriggerText">Select customers…</span>
+                <svg class="multiselect-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="multiselect-panel" id="customerPanel"></div>
+            </div>
+            <span class="field-hint">A project can have more than one customer; a customer can be linked to more than one project. The Client field on the project list is filled in automatically from whoever you pick here.</span>
+          </div>
           <div class="field full"><label>Address</label><input type="text" id="fAddress"></div>
           <div class="field"><label>Start Date</label><input type="date" id="fStart"></div>
           <div class="field"><label>Target End Date</label><input type="date" id="fEnd"></div>
           <div class="field full"><label>Budget (₹)</label><input type="number" id="fBudget" min="0"></div>
+          <div class="field-group-divider">Opening Balance</div>
+          <div class="field"><label>Opening Balance (₹)</label><input type="number" id="fOpeningBalance" min="0"></div>
+          <div class="field"><label>As of Date</label><input type="date" id="fOpeningDate"></div>
+          <div class="field"><label>Type</label>
+            <select id="fOpeningType"><option value="credit">Credit</option><option value="debit">Debit</option></select>
+          </div>
           <div class="field full"><label>Description</label><textarea id="fDesc"></textarea></div>
         </div>
       </form>
@@ -99,16 +114,52 @@
   var canDelete = App.can("projects", "delete");
   var searchTerm = "";
 
-  var customerSelect = document.getElementById("fCustomer");
-  Data.getCustomers().forEach(function (c) {
-    var opt = document.createElement("option");
-    opt.value = c.id; opt.textContent = c.name;
-    customerSelect.appendChild(opt);
+  var allCustomers = Data.getCustomers();
+  var customerTrigger = document.getElementById("customerTrigger");
+  var customerPanel = document.getElementById("customerPanel");
+  var customerTriggerText = document.getElementById("customerTriggerText");
+
+  customerPanel.innerHTML = allCustomers.map(function (c) {
+    return '<label class="checklist-item"><input type="checkbox" value="' + c.id + '"> ' + c.name + '</label>';
+  }).join("") || '<span class="desc-cell" style="display:block;padding:8px 10px">No customers yet — add one from the Customers page.</span>';
+
+  function getCheckedCustomerIds() {
+    return Array.from(customerPanel.querySelectorAll("input:checked")).map(function (el) { return el.value; });
+  }
+  function getClientNameFromCustomers() {
+    var ids = getCheckedCustomerIds();
+    return allCustomers.filter(function (c) { return ids.indexOf(c.id) !== -1; }).map(function (c) { return c.name; }).join(", ");
+  }
+  function refreshCustomerTrigger() {
+    var names = getClientNameFromCustomers();
+    customerTriggerText.textContent = names || "Select customers…";
+    customerTriggerText.classList.toggle("placeholder", !names);
+  }
+  customerPanel.addEventListener("change", refreshCustomerTrigger);
+
+  function positionCustomerPanel() {
+    var rect = customerTrigger.getBoundingClientRect();
+    customerPanel.style.left = rect.left + "px";
+    customerPanel.style.top = (rect.bottom + 6) + "px";
+    customerPanel.style.width = rect.width + "px";
+  }
+  function openCustomerPanel() {
+    positionCustomerPanel();
+    customerPanel.classList.add("show");
+    customerTrigger.classList.add("open");
+  }
+  function closeCustomerPanel() {
+    customerPanel.classList.remove("show");
+    customerTrigger.classList.remove("open");
+  }
+  customerTrigger.addEventListener("click", function (e) {
+    e.stopPropagation();
+    if (customerPanel.classList.contains("show")) closeCustomerPanel(); else openCustomerPanel();
   });
-  customerSelect.addEventListener("change", function () {
-    var c = Data.getCustomers().find(function (x) { return x.id === customerSelect.value; });
-    if (c) document.getElementById("fClient").value = c.name;
+  document.addEventListener("click", function (e) {
+    if (customerPanel.classList.contains("show") && !customerPanel.contains(e.target) && e.target !== customerTrigger) closeCustomerPanel();
   });
+  window.addEventListener("scroll", function () { if (customerPanel.classList.contains("show")) positionCustomerPanel(); }, true);
 
   function statusLabel(s) {
     return { planning: "Planning", active: "Active", on_hold: "On Hold", completed: "Completed", cancelled: "Cancelled" }[s] || s;
@@ -198,20 +249,28 @@
       document.getElementById("fName").value = p.name;
       document.getElementById("fCode").value = p.code;
       document.getElementById("fStatus").value = p.status;
-      document.getElementById("fClient").value = p.clientName || "";
-      document.getElementById("fCustomer").value = p.customerId || "";
+      var checkedIds = p.customerIds || [];
+      customerPanel.querySelectorAll("input").forEach(function (el) { el.checked = checkedIds.indexOf(el.value) !== -1; });
+      refreshCustomerTrigger();
       document.getElementById("fAddress").value = p.address || "";
       document.getElementById("fStart").value = p.startDate || "";
       document.getElementById("fEnd").value = p.targetEndDate || "";
       document.getElementById("fBudget").value = p.budget || "";
+      document.getElementById("fOpeningBalance").value = p.openingBalance || "";
+      document.getElementById("fOpeningDate").value = p.openingBalanceDate || "";
+      document.getElementById("fOpeningType").value = p.openingBalanceType || "credit";
       document.getElementById("fDesc").value = p.description || "";
     } else {
       document.getElementById("modalTitle").textContent = "New Project";
       document.getElementById("fStart").value = Data.isoDate(Data.today());
+      document.getElementById("fOpeningDate").value = Data.isoDate(Data.today());
+      customerPanel.querySelectorAll("input").forEach(function (el) { el.checked = false; });
+      refreshCustomerTrigger();
     }
+    closeCustomerPanel();
     modal.classList.add("show");
   }
-  function closeModal() { modal.classList.remove("show"); }
+  function closeModal() { modal.classList.remove("show"); closeCustomerPanel(); }
 
   document.getElementById("addProjectBtn").addEventListener("click", function () { openModal(null); });
   document.getElementById("closeModal").addEventListener("click", closeModal);
@@ -231,12 +290,15 @@
       name: name,
       code: code,
       status: document.getElementById("fStatus").value,
-      clientName: document.getElementById("fClient").value.trim(),
-      customerId: document.getElementById("fCustomer").value || null,
+      clientName: getClientNameFromCustomers(),
+      customerIds: getCheckedCustomerIds(),
       address: document.getElementById("fAddress").value.trim(),
       startDate: document.getElementById("fStart").value,
       targetEndDate: document.getElementById("fEnd").value,
       budget: Number(document.getElementById("fBudget").value) || 0,
+      openingBalance: Number(document.getElementById("fOpeningBalance").value) || 0,
+      openingBalanceDate: document.getElementById("fOpeningDate").value || Data.isoDate(Data.today()),
+      openingBalanceType: document.getElementById("fOpeningType").value,
       description: document.getElementById("fDesc").value.trim()
     };
 

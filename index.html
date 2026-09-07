@@ -39,12 +39,33 @@
           <svg class="leading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           <input type="password" id="password" placeholder="Any value works in this demo" value="demo1234">
         </div>
+        <a href="#" class="forgot-password-link" id="forgotPasswordLink">Forgot password?</a>
       </div>
 
       <button type="submit" class="btn btn-primary submit-btn">Sign In</button>
     </form>
 
     <div class="demo-hint">This is a UI-only demo with configurable roles — pick <b>Vijay Kumar</b> (Administrator) for full access, a Supervisor to see only assigned project(s), or the Accountant to see billing/expenses across every site. Manage roles under Roles &amp; Permissions.</div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="forgotModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Reset your password</h3><p>Enter your email and we'll send you a reset link.</p></div>
+      <button class="modal-close" id="closeForgotModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="forgotForm">
+        <div class="field-grid">
+          <div class="field full"><label>Email <span class="req">*</span></label><input type="email" id="forgotEmail" placeholder="you@buildtrack.in" required></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelForgotModal">Cancel</button>
+      <button class="btn btn-primary" id="sendResetBtn">Send Reset Link</button>
+    </div>
   </div>
 </div>
 
@@ -66,6 +87,23 @@
       if (!userId) return;
       App.login(userId);
       window.location.href = "dashboard.html";
+    });
+
+    var forgotModal = document.getElementById("forgotModal");
+    function closeForgotModal() { forgotModal.classList.remove("show"); }
+    document.getElementById("forgotPasswordLink").addEventListener("click", function (e) {
+      e.preventDefault();
+      document.getElementById("forgotEmail").value = "";
+      forgotModal.classList.add("show");
+    });
+    document.getElementById("closeForgotModal").addEventListener("click", closeForgotModal);
+    document.getElementById("cancelForgotModal").addEventListener("click", closeForgotModal);
+    forgotModal.addEventListener("click", function (e) { if (e.target === forgotModal) closeForgotModal(); });
+    document.getElementById("sendResetBtn").addEventListener("click", function () {
+      var email = document.getElementById("forgotEmail").value.trim();
+      if (!email) { App.showToast("Enter your email address", true); return; }
+      closeForgotModal();
+      App.showToast("Password reset link sent to " + email);
     });
   })();
 </script>

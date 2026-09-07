@@ -42,27 +42,11 @@
     document.getElementById("projName").textContent = project.name;
     document.getElementById("projMeta").textContent = project.code;
     document.getElementById("tabsMount").innerHTML = App.projectTabsHtml(projectId, "reports");
-    var canCreate = App.can("reports", "create");
     var canDelete = App.can("reports", "delete");
 
     document.getElementById("pageBody").innerHTML =
-      (canCreate ?
-      '<div class="panel full-panel">' +
-        '<div class="panel-header"><h3>Log Today\'s Work</h3></div>' +
-        '<form id="reportForm">' +
-          '<div class="field-grid">' +
-            '<div class="field"><label>Date</label><input type="date" id="fDate"></div>' +
-            '<div class="field full"><label>Title</label><input type="text" id="fTitle" placeholder="e.g. Daily site update"></div>' +
-            '<div class="field full"><label>What was done today? <span class="req">*</span></label><textarea id="fDesc" placeholder="Describe the work completed, materials used, issues faced..." required></textarea></div>' +
-          '</div>' +
-          '<div class="modal-footer" style="padding:18px 0 0;border-top:none">' +
-            '<button type="submit" class="btn btn-primary">+ Add Report</button>' +
-          '</div>' +
-        '</form>' +
-      '</div>' : '') +
+      '<p class="section-subheading">Reports are generated automatically whenever a task is marked complete on the <a href="project-tasks.html?id=' + projectId + '">Tasks</a> tab.</p>' +
       '<div class="activity-list" id="reportList" style="max-width:820px"></div>';
-
-    if (document.getElementById("fDate")) document.getElementById("fDate").value = Data.isoDate(Data.today());
 
     function renderReports() {
       var reports = Data.getWorkReports().filter(function (r) { return r.projectId === projectId; })
@@ -97,24 +81,6 @@
       if (!btn) return;
       Data.saveWorkReports(Data.getWorkReports().filter(function (r) { return r.id !== btn.getAttribute("data-del"); }));
       App.showToast("Report removed");
-      renderReports();
-    });
-
-    var reportFormEl = document.getElementById("reportForm");
-    if (reportFormEl) reportFormEl.addEventListener("submit", function (e) {
-      e.preventDefault();
-      var desc = document.getElementById("fDesc").value.trim();
-      if (!desc) { App.showToast("Describe the work done", true); return; }
-      var reports = Data.getWorkReports();
-      reports.push({
-        id: Data.uid("wr"), projectId: projectId, date: document.getElementById("fDate").value,
-        title: document.getElementById("fTitle").value.trim(), description: desc,
-        source: "manual", taskId: null
-      });
-      Data.saveWorkReports(reports);
-      App.showToast("Report added");
-      document.getElementById("reportForm").reset();
-      document.getElementById("fDate").value = Data.isoDate(Data.today());
       renderReports();
     });
 

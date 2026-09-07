@@ -85,17 +85,19 @@
       (est.hasData ? '<span class="badge badge-success" style="margin-top:10px;display:inline-block">On track</span>' : ''));
 
     var cost = Business.getProjectCost(projectId);
+    var openingLabel = project.openingBalanceType === "debit" ? "Opening Balance (Debit)" : "Opening Balance (Credit)";
     document.getElementById("costSummary").innerHTML =
       '<div class="view-detail-item"><span>Materials Purchased</span><strong>₹' + Charts.fmtCompact(cost.stockCost) + '</strong></div>' +
       '<div class="view-detail-item"><span>Wages Paid</span><strong>₹' + Charts.fmtCompact(cost.wagesPaid) + '</strong></div>' +
       '<div class="view-detail-item"><span>Other Expenses</span><strong>₹' + Charts.fmtCompact(cost.otherExpenses) + '</strong></div>' +
       '<div class="view-detail-item"><span>Total Cash Spent</span><strong>₹' + Charts.fmtCompact(cost.totalCashSpent) + '</strong></div>' +
       '<div class="view-detail-item"><span>Wages Owed (accrued)</span><strong>₹' + Charts.fmtCompact(cost.wagesOwed) + '</strong></div>' +
+      '<div class="view-detail-item"><span>' + openingLabel + '</span><strong>₹' + Charts.fmtCompact(project.openingBalance || 0) + '</strong></div>' +
       '<div class="view-detail-item"><span>Budget</span><strong>₹' + Charts.fmtCompact(project.budget || 0) + '</strong></div>';
 
-    var linkedCustomer = project.customerId ? Data.getCustomers().find(function (c) { return c.id === project.customerId; }) : null;
-    var clientDisplay = linkedCustomer
-      ? '<a href="customer-detail.html?id=' + linkedCustomer.id + '">' + linkedCustomer.name + ' &rarr; view ledger</a>'
+    var linkedCustomers = Business.getProjectCustomers(projectId);
+    var clientDisplay = linkedCustomers.length
+      ? linkedCustomers.map(function (c) { return '<a href="customer-detail.html?id=' + c.id + '">' + c.name + '</a>'; }).join(", ")
       : (project.clientName || "—");
 
     document.getElementById("infoRows").innerHTML =

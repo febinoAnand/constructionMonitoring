@@ -27,7 +27,7 @@
       <div class="table-card">
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>User</th><th>Role</th><th>Contact</th><th>Assigned Projects</th><th></th></tr></thead>
+            <thead><tr><th>User</th><th>Role</th><th>Contact</th><th>Assigned Projects</th><th>Monthly Salary</th><th></th></tr></thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
@@ -51,6 +51,7 @@
           <div class="field"><label>Username</label><input type="text" id="fUsername" placeholder="e.g. ramesh.babu"></div>
           <div class="field"><label>Phone</label><input type="text" id="fPhone"></div>
           <div class="field"><label>Email</label><input type="email" id="fEmail"></div>
+          <div class="field" id="salaryWrap" style="display:none"><label>Monthly Salary (₹)</label><input type="number" id="fSalary" min="0"></div>
           <div class="field full" id="assignWrap">
             <label>Assigned Projects (only used if the role isn't "sees all projects")</label>
             <div id="assignCheckboxes" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -58,8 +59,10 @@
         </div>
       </form>
     </div>
-    <div class="modal-footer">
+    <div class="modal-footer" style="flex-wrap:wrap;gap:10px">
       <button class="btn btn-outline" id="cancelModal">Cancel</button>
+      <button class="btn btn-outline" id="modalResetBtn" style="display:none">Reset Password</button>
+      <button class="btn btn-outline" id="modalInviteBtn">Send Invite</button>
       <button class="btn btn-primary" id="saveBtn">Save User</button>
     </div>
   </div>
@@ -111,13 +114,19 @@
           '<td><span class="status-pill ' + (allProj ? "confirmed" : "pending") + '">' + roleName(u.roleId) + '</span></td>' +
           '<td>' + (u.phone || "—") + '<br><span class="desc-cell">' + (u.email || "") + '</span></td>' +
           '<td>' + (allProj ? '<span class="desc-cell">All projects</span>' : (assigned || '<span class="desc-cell">None assigned</span>')) + '</td>' +
+          '<td>' + (u.monthlySalary ? '₹' + u.monthlySalary.toLocaleString("en-IN") : '<span class="desc-cell">—</span>') + '</td>' +
           '<td>' +
-            '<div class="row-actions">' +
-              '<button class="action-trigger" data-menu-toggle="' + u.id + '">' + App.svg("dots") + '</button>' +
-              '<div class="action-menu" data-menu="' + u.id + '">' +
-                (canEdit ? '<button data-edit="' + u.id + '">' + App.svg("edit") + ' Edit</button>' : "") +
-                (canDelete ? '<button class="danger" data-delete="' + u.id + '">' + App.svg("trash") + ' Delete</button>' : "") +
-                (!canEdit && !canDelete ? '<button disabled>No actions</button>' : "") +
+            '<div class="action-buttons-row">' +
+              '<button class="action-trigger" data-invite="' + u.id + '" title="Send Invite">' + App.svg("mail") + '</button>' +
+              '<button class="action-trigger" data-reset="' + u.id + '" title="Reset Password">' + App.svg("key") + '</button>' +
+              '<div class="row-actions">' +
+                '<button class="action-trigger" data-menu-toggle="' + u.id + '">' + App.svg("dots") + '</button>' +
+                '<div class="action-menu" data-menu="' + u.id + '">' +
+                  '<button data-invite="' + u.id + '">' + App.svg("mail") + ' Send Invite</button>' +
+                  '<button data-reset="' + u.id + '">' + App.svg("key") + ' Reset Password</button>' +
+                  (canEdit ? '<button data-edit="' + u.id + '">' + App.svg("edit") + ' Edit</button>' : "") +
+                  (canDelete ? '<button class="danger" data-delete="' + u.id + '">' + App.svg("trash") + ' Delete</button>' : "") +
+                '</div>' +
               '</div>' +
             '</div>' +
           '</td>' +
@@ -140,7 +149,24 @@
       if (edit) { openModal(edit.getAttribute("data-edit")); return; }
       var del = e.target.closest("[data-delete]");
       if (del) { deleteUser(del.getAttribute("data-delete")); return; }
+      var invite = e.target.closest("[data-invite]");
+      if (invite) { sendInvite(invite.getAttribute("data-invite")); return; }
+      var reset = e.target.closest("[data-reset]");
+      if (reset) { resetPassword(reset.getAttribute("data-reset")); return; }
     });
+
+    function sendInvite(id) {
+      var u = Data.getUsers().find(function (x) { return x.id === id; });
+      if (!u) return;
+      App.showToast("Invitation sent to " + (u.email || "their email") + " — they can set their password there");
+    }
+
+    function resetPassword(id) {
+      var u = Data.getUsers().find(function (x) { return x.id === id; });
+      if (!u) return;
+      if (!confirm("Send a password reset link to " + u.name + "?")) return;
+      App.showToast("Password reset link sent to " + (u.email || "their email"));
+    }
     window.addEventListener("scroll", function () { if (openMenuId) App.positionActionMenu(openMenuId); }, true);
 
     function deleteUser(id) {
@@ -161,6 +187,8 @@
 
     function toggleAssignVisibility() {
       document.getElementById("assignWrap").style.display = roleAllProjects(roleSelect.value) ? "none" : "";
+      var salaryEligible = roleSelect.value === "r_supervisor" || roleSelect.value === "r_accountant";
+      document.getElementById("salaryWrap").style.display = salaryEligible ? "" : "none";
     }
     roleSelect.addEventListener("change", toggleAssignVisibility);
 
@@ -177,10 +205,13 @@
         document.getElementById("fUsername").value = u.username || "";
         document.getElementById("fPhone").value = u.phone || "";
         document.getElementById("fEmail").value = u.email || "";
+        document.getElementById("fSalary").value = u.monthlySalary || "";
         renderAssignCheckboxes(u.assignedProjectIds || []);
+        document.getElementById("modalResetBtn").style.display = "";
       } else {
         document.getElementById("modalTitle").textContent = "Add User";
         renderAssignCheckboxes([]);
+        document.getElementById("modalResetBtn").style.display = "none";
       }
       toggleAssignVisibility();
       modal.classList.add("show");
@@ -192,9 +223,9 @@
     document.getElementById("cancelModal").addEventListener("click", closeModal);
     modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
 
-    document.getElementById("saveBtn").addEventListener("click", function () {
+    function saveUserFromForm() {
       var name = document.getElementById("fName").value.trim();
-      if (!name) { App.showToast("Name is required", true); return; }
+      if (!name) { App.showToast("Name is required", true); return null; }
       var id = document.getElementById("editId").value;
       var roleId = roleSelect.value;
       var assigned = Array.from(document.querySelectorAll("#assignCheckboxes input:checked")).map(function (c) { return c.value; });
@@ -205,12 +236,35 @@
         username: document.getElementById("fUsername").value.trim(),
         phone: document.getElementById("fPhone").value.trim(),
         email: document.getElementById("fEmail").value.trim(),
+        monthlySalary: (roleId === "r_supervisor" || roleId === "r_accountant") ? (Number(document.getElementById("fSalary").value) || 0) : 0,
         assignedProjectIds: roleAllProjects(roleId) ? [] : assigned
       };
 
       var users = Data.getUsers();
       users = id ? users.map(function (u) { return u.id === id ? record : u; }) : users.concat([record]);
       Data.saveUsers(users);
+      return record;
+    }
+
+    document.getElementById("modalInviteBtn").addEventListener("click", function () {
+      var record = saveUserFromForm();
+      if (!record) return;
+      App.showToast(document.getElementById("editId").value ? "User updated" : "User added");
+      closeModal();
+      render();
+      sendInvite(record.id);
+    });
+
+    document.getElementById("modalResetBtn").addEventListener("click", function () {
+      var id = document.getElementById("editId").value;
+      if (!id) return;
+      resetPassword(id);
+    });
+
+    document.getElementById("saveBtn").addEventListener("click", function () {
+      var id = document.getElementById("editId").value;
+      var record = saveUserFromForm();
+      if (!record) return;
       App.showToast(id ? "User updated" : "User added");
       closeModal();
       render();

@@ -7,9 +7,9 @@
 (function () {
   "use strict";
 
-  var USERS_KEY = "cui_users_v2";
+  var USERS_KEY = "cui_users_v3";
   var ROLES_KEY = "cui_roles_v1";
-  var PROJECTS_KEY = "cui_projects_v2";
+  var PROJECTS_KEY = "cui_projects_v3";
   var LABOURERS_KEY = "cui_labourers_v1";
   var ATTENDANCE_KEY = "cui_attendance_v1";
   var WAGE_PAYMENTS_KEY = "cui_wage_payments_v1";
@@ -18,9 +18,12 @@
   var EXPENSES_KEY = "cui_expenses_v1";
   var WORK_REPORTS_KEY = "cui_work_reports_v1";
   var PROGRESS_KEY = "cui_progress_v1";
-  var TASKS_KEY = "cui_tasks_v1";
+  var TASKS_KEY = "cui_tasks_v2";
+  var TASK_ACTIVITY_KEY = "cui_task_activity_v1";
   var CUSTOMERS_KEY = "cui_customers_v1";
   var CUSTOMER_LEDGER_KEY = "cui_customer_ledger_v1";
+
+  var GODOWN_ID = "godown";
 
   function uid(prefix) {
     return (prefix || "id") + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -41,6 +44,7 @@
   }
 
   function displayDate(iso) {
+    if (!iso) return "—";
     var parts = iso.split("-");
     return parts[2] + " " + MONTHS[parseInt(parts[1], 10) - 1] + " " + parts[0];
   }
@@ -79,7 +83,7 @@
   var PERMISSION_MODULES = [
     { key: "projects", label: "Projects" },
     { key: "labour", label: "Labour & Attendance" },
-    { key: "stock", label: "Stock & Materials" },
+    { key: "stock", label: "Stock & Godown" },
     { key: "expenses", label: "Expenses" },
     { key: "reports", label: "Work Reports" },
     { key: "progress", label: "Progress & Tasks" },
@@ -122,11 +126,11 @@
 
   function buildSeedUsers() {
     return [
-      { id: "u1", name: "Vijay Kumar", username: "vijay.kumar", email: "vijay@buildtrack.in", roleId: "r_admin", phone: "9840012345", assignedProjectIds: [] },
-      { id: "u2", name: "Ramesh Babu", username: "ramesh.babu", email: "ramesh@buildtrack.in", roleId: "r_supervisor", phone: "9840023456", assignedProjectIds: ["p1"] },
-      { id: "u3", name: "Suresh Raj", username: "suresh.raj", email: "suresh@buildtrack.in", roleId: "r_supervisor", phone: "9840034567", assignedProjectIds: ["p2"] },
-      { id: "u4", name: "Anitha Selvam", username: "anitha.selvam", email: "anitha@buildtrack.in", roleId: "r_supervisor", phone: "9840045678", assignedProjectIds: ["p1", "p3"] },
-      { id: "u5", name: "Priya Sundaram", username: "priya.sundaram", email: "priya@buildtrack.in", roleId: "r_accountant", phone: "9840056789", assignedProjectIds: [] }
+      { id: "u1", name: "Vijay Kumar", username: "vijay.kumar", email: "vijay@buildtrack.in", roleId: "r_admin", phone: "9840012345", assignedProjectIds: [], monthlySalary: 0 },
+      { id: "u2", name: "Ramesh Babu", username: "ramesh.babu", email: "ramesh@buildtrack.in", roleId: "r_supervisor", phone: "9840023456", assignedProjectIds: ["p1"], monthlySalary: 28000 },
+      { id: "u3", name: "Suresh Raj", username: "suresh.raj", email: "suresh@buildtrack.in", roleId: "r_supervisor", phone: "9840034567", assignedProjectIds: ["p2"], monthlySalary: 26000 },
+      { id: "u4", name: "Anitha Selvam", username: "anitha.selvam", email: "anitha@buildtrack.in", roleId: "r_supervisor", phone: "9840045678", assignedProjectIds: ["p1", "p3"], monthlySalary: 30000 },
+      { id: "u5", name: "Priya Sundaram", username: "priya.sundaram", email: "priya@buildtrack.in", roleId: "r_accountant", phone: "9840056789", assignedProjectIds: [], monthlySalary: 32000 }
     ];
   }
 
@@ -143,11 +147,14 @@
         code: "PRJ-101",
         address: "Plot 14, Anna Nagar West, Chennai",
         clientName: "Skyline Builders Pvt Ltd",
-        customerId: "c1",
+        customerIds: ["c1"],
         startDate: isoDate(addDays(t, -140)),
         targetEndDate: isoDate(addDays(t, 70)),
         status: "active",
         budget: 18500000,
+        openingBalance: 500000,
+        openingBalanceDate: isoDate(addDays(t, -141)),
+        openingBalanceType: "credit",
         description: "G+4 residential apartment block, 12 units."
       },
       {
@@ -156,11 +163,14 @@
         code: "PRJ-102",
         address: "Survey 22/3, Perungudi, Chennai",
         clientName: "Green Valley Developers",
-        customerId: "c2",
+        customerIds: ["c2"],
         startDate: isoDate(addDays(t, -60)),
         targetEndDate: isoDate(addDays(t, 160)),
         status: "active",
         budget: 24500000,
+        openingBalance: 0,
+        openingBalanceDate: isoDate(addDays(t, -60)),
+        openingBalanceType: "credit",
         description: "G+6 residential tower with basement parking."
       },
       {
@@ -169,11 +179,14 @@
         code: "PRJ-103",
         address: "NH-45 Service Road, Tambaram",
         clientName: "Riverside Ventures LLP",
-        customerId: "c3",
+        customerIds: ["c3", "c1"],
         startDate: isoDate(addDays(t, -20)),
         targetEndDate: isoDate(addDays(t, 260)),
         status: "planning",
         budget: 41000000,
+        openingBalance: 250000,
+        openingBalanceDate: isoDate(addDays(t, -21)),
+        openingBalanceType: "debit",
         description: "Ground+3 commercial complex with retail units."
       }
     ];
@@ -407,6 +420,45 @@
       });
     });
 
+    /* Godown (central store) seed stock: a few materials purchased in bulk
+       into the godown, one of which has already been partly issued to p1. */
+    var godownMats = [materials[1], materials[2], materials[4]];
+    godownMats.forEach(function (mat, idx) {
+      var unitRate = { m2: 380, m3: 55, m5: 9 }[mat.id];
+      var qty = mat.reorderThreshold * 4;
+      txns.push({
+        id: "st_godown_" + mat.id + "_in1",
+        projectId: GODOWN_ID,
+        materialId: mat.id,
+        type: "inward",
+        quantity: qty,
+        ratePerUnit: unitRate,
+        totalAmount: Math.round(qty * unitRate),
+        date: isoDate(addDays(t, -40 + idx * 2)),
+        supplierName: SUPPLIERS[idx % SUPPLIERS.length],
+        invoiceNumber: "INV-G" + (9000 + idx * 11),
+        notes: "Bulk godown purchase",
+        source: "purchase"
+      });
+    });
+    var issueQty = Math.round(godownMats[0].reorderThreshold * 1.2);
+    var issueRate = 380;
+    var issueTransferId = "tr_godown_seed1";
+    txns.push({
+      id: "st_godown_" + godownMats[0].id + "_out_seed1",
+      projectId: GODOWN_ID, materialId: godownMats[0].id, type: "outward",
+      quantity: issueQty, ratePerUnit: issueRate, totalAmount: Math.round(issueQty * issueRate),
+      date: isoDate(addDays(t, -12)), supplierName: "", invoiceNumber: "",
+      notes: "Issued to Skyline Residency", source: "godown", sourceProjectId: "p1", transferId: issueTransferId
+    });
+    txns.push({
+      id: "st_p1_" + godownMats[0].id + "_in_fromGodown",
+      projectId: "p1", materialId: godownMats[0].id, type: "inward",
+      quantity: issueQty, ratePerUnit: issueRate, totalAmount: Math.round(issueQty * issueRate),
+      date: isoDate(addDays(t, -12)), supplierName: "", invoiceNumber: "",
+      notes: "Received from Godown", source: "godown", sourceProjectId: GODOWN_ID, transferId: issueTransferId
+    });
+
     return txns;
   }
 
@@ -527,11 +579,14 @@
     var tasks = [];
     var projects = ["p1", "p2", "p3"];
     var labourers = buildSeedLabourers().slice(0, 6).map(function (l) { return l.name; });
+    var supervisorByProject = { p1: "u2", p2: "u3", p3: "u4" };
     projects.forEach(function (pid, pIdx) {
       var count = pid === "p3" ? 4 : 7;
       for (var i = 0; i < count; i++) {
         var status = TASK_STATUSES[(pIdx + i) % 3];
         var dayOffset = -((pIdx + i) % 3);
+        var createdOffset = dayOffset - 3 - (i % 4);
+        var isDone = status === "done";
         tasks.push({
           id: "tk_" + pid + "_" + i,
           projectId: pid,
@@ -540,7 +595,16 @@
           status: status,
           date: isoDate(addDays(t, dayOffset)),
           notes: "",
-          customFields: {}
+          customFields: {},
+          createdAt: isoDate(addDays(t, createdOffset)),
+          createdBy: supervisorByProject[pid],
+          completedAt: isDone ? isoDate(addDays(t, dayOffset)) : null,
+          sqft: isDone ? 200 + (i * 35) % 600 : null,
+          completionCost: isDone ? 8000 + (i * 1200) % 40000 : null,
+          personsCount: isDone ? 2 + (i % 5) : null,
+          personInCharge: isDone ? labourers[(pIdx + i + 1) % labourers.length] : "",
+          durationDays: isDone ? 1 + (i % 4) : null,
+          materialUsed: isDone ? "Cement, Sand, Bricks" : ""
         });
       }
     });
@@ -548,6 +612,16 @@
   }
 
   var tasksStore = makeStore(TASKS_KEY, buildSeedTasks);
+
+  /* ---------------- Task activity log (append-only audit trail per task) ---------------- */
+
+  var taskActivityStore = makeStore(TASK_ACTIVITY_KEY, function () { return []; });
+
+  function addTaskActivity(taskId, message) {
+    var all = taskActivityStore.get();
+    all.push({ id: uid("tact"), taskId: taskId, date: isoDate(today()), message: message });
+    taskActivityStore.save(all);
+  }
 
   /* ---------------- Task custom field definitions (per-project, user-defined) ---------------- */
 
@@ -593,6 +667,8 @@
     getCustomers: customersStore.get, saveCustomers: customersStore.save,
     getCustomerLedger: customerLedgerStore.get, saveCustomerLedger: customerLedgerStore.save,
     getTasks: tasksStore.get, saveTasks: tasksStore.save,
+    getTaskActivity: taskActivityStore.get, saveTaskActivity: taskActivityStore.save,
+    addTaskActivity: addTaskActivity,
     getTaskFieldDefs: taskFieldDefsStore.get, saveTaskFieldDefs: taskFieldDefsStore.save,
     getTaskStatusDefs: taskStatusDefsStore.get, saveTaskStatusDefs: taskStatusDefsStore.save,
     getProjects: projectsStore.get, saveProjects: projectsStore.save,
@@ -611,6 +687,7 @@
     PERMISSION_MODULES: PERMISSION_MODULES,
     TASK_STATUSES: TASK_STATUSES,
     TASK_FIELD_TYPES: TASK_FIELD_TYPES,
+    GODOWN_ID: GODOWN_ID,
     fullPerms: fullPerms
   };
 })();

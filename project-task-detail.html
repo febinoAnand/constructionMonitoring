@@ -22,8 +22,57 @@
       </div>
 
       <div id="tabsMount"></div>
+      <div id="timelineStrip" class="timeline-strip"></div>
       <div id="pageBody"></div>
     </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="editTaskModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Edit Task</h3><p>Update the core task details.</p></div>
+      <button class="modal-close" id="closeEditTaskModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="editTaskForm">
+        <div class="field-grid">
+          <div class="field full"><label>Title</label><input type="text" id="etTitle"></div>
+          <div class="field full"><label>Assignee</label><input type="text" id="etAssignee"></div>
+          <div class="field"><label>Date</label><input type="date" id="etDate"></div>
+          <div class="field full"><label>Notes</label><textarea id="etNotes" rows="4"></textarea></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelEditTaskModal">Cancel</button>
+      <button class="btn btn-primary" id="saveEditTaskBtn">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="completeTaskModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Complete Task</h3><p>Capture a few closing details before marking this task done.</p></div>
+      <button class="modal-close" id="closeCompleteTaskModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="completeTaskForm">
+        <div class="field-grid">
+          <div class="field"><label>Area (sqft)</label><input type="number" id="ctSqft" min="0"></div>
+          <div class="field"><label>Cost (₹)</label><input type="number" id="ctCost" min="0"></div>
+          <div class="field"><label>No. of Persons</label><input type="number" id="ctPersons" min="0"></div>
+          <div class="field"><label>Person in Charge</label><input type="text" id="ctInCharge"></div>
+          <div class="field"><label>Duration (days)</label><input type="number" id="ctDuration" min="0"></div>
+          <div class="field full"><label>Material Used</label><input type="text" id="ctMaterial" placeholder="e.g. Cement, Sand, Bricks"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelCompleteTaskModal">Cancel</button>
+      <button class="btn btn-primary" id="saveCompleteTaskBtn">Mark Complete</button>
+    </div>
   </div>
 </div>
 
@@ -51,20 +100,34 @@
 
     var task = Data.getTasks().find(function (t) { return t.id === taskId && t.projectId === projectId; });
 
-    function fieldDefs() {
-      return Data.getTaskFieldDefs().filter(function (f) { return f.projectId === projectId; });
-    }
     function statusColumns() { return Business.getProjectStatusColumns(projectId); }
     function statusMeta(key) { return statusColumns().find(function (s) { return s.key === key; }) || { key: key, label: key }; }
+
+    function creatorName(userId) {
+      var u = Data.getUsers().find(function (x) { return x.id === userId; });
+      return u ? u.name : "—";
+    }
+
+    function renderTimeline() {
+      var createdText = task.createdAt ? Data.displayDate(task.createdAt) + " by " + creatorName(task.createdBy) : "—";
+      var completedText = task.completedAt ? Data.displayDate(task.completedAt) : "Not yet completed";
+      document.getElementById("timelineStrip").innerHTML =
+        '<div class="timeline-step"><span class="timeline-dot done"></span><div><strong>Created</strong><span>' + createdText + '</span></div></div>' +
+        '<div class="timeline-connector"></div>' +
+        '<div class="timeline-step"><span class="timeline-dot ' + (task.completedAt ? "done" : "pending") + '"></span><div><strong>Completed</strong><span>' + completedText + '</span></div></div>';
+    }
 
     function render() {
       document.getElementById("taskTitleHeading").textContent = task.title;
       document.getElementById("taskMeta").textContent = project.name + " · " + project.code;
+      renderTimeline();
 
       document.getElementById("pageBody").innerHTML =
         '<div class="detail-grid">' +
           '<div class="detail-card">' +
-            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("columns") + '</span>Task Details<span class="status-pill ' + statusPillClass(task.status) + '" style="margin-left:auto">' + statusMeta(task.status).label + '</span></div>' +
+            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("columns") + '</span>Task Details<span class="status-pill ' + statusPillClass(task.status) + '" style="margin-left:auto">' + statusMeta(task.status).label + '</span>' +
+              (canUpdate ? '<button type="button" class="btn btn-outline" id="openEditTaskBtn" style="margin-left:10px;padding:6px 12px;font-size:12px">' + App.svg("edit") + ' Edit</button>' : '') +
+            '</div>' +
             '<div style="padding:20px">' +
               '<div class="field-grid">' +
                 '<div class="field full"><label>Title</label><input type="text" id="tdTitle"></div>' +
@@ -79,31 +142,16 @@
                 '</div>' +
                 '<div class="field full"><label>Description / Notes</label><textarea id="tdNotes" rows="5" placeholder="Add details, blockers, or context about this task..."></textarea></div>' +
               '</div>' +
-            '</div>' +
-          '</div>' +
-          '<div class="detail-card">' +
-            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("edit") + '</span>Custom Fields</div>' +
-            '<div style="padding:20px">' +
-              '<div id="tdCustomFields" style="display:flex;flex-direction:column;gap:12px"></div>' +
-              (canUpdate ?
-              '<form id="tdAddFieldForm" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">' +
-                '<div class="field-grid">' +
-                  '<div class="field"><label>New field label</label><input type="text" id="tdNewFieldLabel" placeholder="e.g. Floor Level"></div>' +
-                  '<div class="field"><label>Type</label>' +
-                    '<select id="tdNewFieldType">' +
-                      '<option value="text">Text</option>' +
-                      '<option value="number">Number</option>' +
-                      '<option value="date">Date</option>' +
-                    '</select>' +
-                  '</div>' +
-                '</div>' +
-                '<button type="submit" class="btn btn-outline" style="margin-top:12px;width:100%">+ Add Field</button>' +
-              '</form>' : '') +
+              (task.completedAt ? completionDetailsHtml() : "") +
               (canDelete ?
               '<div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">' +
                 '<button type="button" class="btn btn-outline" id="tdDeleteTask" style="color:var(--danger);border-color:var(--danger);width:100%">' + App.svg("trash") + ' Delete Task</button>' +
               '</div>' : '') +
             '</div>' +
+          '</div>' +
+          '<div class="detail-card">' +
+            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("clock") + '</span>Activity</div>' +
+            '<div id="activityFeed" style="padding:18px 20px"></div>' +
           '</div>' +
         '</div>';
 
@@ -121,22 +169,31 @@
         document.getElementById(id).disabled = readOnly;
       });
 
-      renderCustomFields();
+      renderActivity();
       wireEvents();
     }
 
-    function renderCustomFields() {
-      var defs = fieldDefs();
-      document.getElementById("tdCustomFields").innerHTML = defs.length
-        ? defs.map(function (f) {
-            var v = (task.customFields && task.customFields[f.key]) || "";
-            var inputType = f.type === "number" ? "number" : f.type === "date" ? "date" : "text";
-            return '<div style="display:flex;align-items:flex-end;gap:8px">' +
-              '<div class="field" style="flex:1;margin:0"><label>' + f.label + '</label><input type="' + inputType + '" value="' + v + '" data-td-field="' + f.key + '" ' + (canUpdate ? '' : 'disabled') + '></div>' +
-              (canUpdate ? '<button type="button" class="action-trigger" data-td-del-field="' + f.id + '" title="Remove field">' + App.svg("trash") + '</button>' : '') +
-            '</div>';
-          }).join("")
-        : '<p style="font-size:12.5px;color:var(--muted);margin:0">No custom fields yet' + (canUpdate ? ' — add one below.' : '.') + '</p>';
+    function completionDetailsHtml() {
+      return '<div class="field-group-divider">Completion Details</div>' +
+        '<div class="view-detail-grid">' +
+          '<div class="view-detail-item"><span>Area</span><strong>' + (task.sqft || 0) + ' sqft</strong></div>' +
+          '<div class="view-detail-item"><span>Cost</span><strong>₹' + (task.completionCost || 0) + '</strong></div>' +
+          '<div class="view-detail-item"><span>No. of Persons</span><strong>' + (task.personsCount || 0) + '</strong></div>' +
+          '<div class="view-detail-item"><span>Person in Charge</span><strong>' + (task.personInCharge || "—") + '</strong></div>' +
+          '<div class="view-detail-item"><span>Duration</span><strong>' + (task.durationDays || 0) + ' day(s)</strong></div>' +
+          '<div class="view-detail-item"><span>Material Used</span><strong>' + (task.materialUsed || "—") + '</strong></div>' +
+        '</div>';
+    }
+
+    function renderActivity() {
+      var entries = Data.getTaskActivity().filter(function (a) { return a.taskId === taskId; })
+        .sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : (a.id < b.id ? 1 : -1)); });
+      var feedEl = document.getElementById("activityFeed");
+      feedEl.innerHTML = entries.length
+        ? '<div class="activity-list">' + entries.map(function (a) {
+            return '<div class="activity-item"><div class="activity-dot"></div><div><p>' + a.message + '</p><span>' + Data.displayDate(a.date) + '</span></div></div>';
+          }).join("") + '</div>'
+        : '<div class="empty-state compact">' + App.svg("clock") + '<p>No activity logged yet.</p></div>';
     }
 
     function saveTaskPatch(patch) {
@@ -178,9 +235,16 @@
         document.getElementById("taskTitleHeading").textContent = task.title;
       });
       document.getElementById("tdStatus").addEventListener("change", function () {
-        saveTaskPatch({ status: this.value });
-        document.querySelector(".status-pill").className = "status-pill " + statusPillClass(task.status);
-        document.querySelector(".status-pill").textContent = statusMeta(task.status).label;
+        var newStatus = this.value;
+        var select = this;
+        if (newStatus === "done" && task.status !== "done") {
+          openCompleteTaskModal();
+          return;
+        }
+        var oldStatus = task.status;
+        saveTaskPatch({ status: newStatus });
+        Data.addTaskActivity(taskId, "Status changed from " + statusMeta(oldStatus).label + " to " + statusMeta(newStatus).label);
+        render();
         App.showToast("Status updated to " + statusMeta(task.status).label);
       });
       document.getElementById("tdAssignee").addEventListener("change", function () { saveTaskPatch({ assignee: this.value.trim() }); });
@@ -196,41 +260,6 @@
         App.showToast("Assigned to you");
       });
 
-      document.getElementById("tdCustomFields").addEventListener("change", function (e) {
-        var input = e.target.closest("[data-td-field]");
-        if (!input) return;
-        var customFields = Object.assign({}, task.customFields);
-        customFields[input.getAttribute("data-td-field")] = input.value;
-        saveTaskPatch({ customFields: customFields });
-      });
-
-      document.getElementById("tdCustomFields").addEventListener("click", function (e) {
-        var delBtn = e.target.closest("[data-td-del-field]");
-        if (!delBtn) return;
-        if (!confirm("Remove this field from the project? Existing values will be hidden but not deleted.")) return;
-        Data.saveTaskFieldDefs(Data.getTaskFieldDefs().filter(function (f) { return f.id !== delBtn.getAttribute("data-td-del-field"); }));
-        renderCustomFields();
-      });
-
-      var addFieldForm = document.getElementById("tdAddFieldForm");
-      if (addFieldForm) addFieldForm.addEventListener("submit", function (e) {
-        e.preventDefault();
-        var label = document.getElementById("tdNewFieldLabel").value.trim();
-        if (!label) { App.showToast("Enter a field label", true); return; }
-        var type = document.getElementById("tdNewFieldType").value;
-        var key = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || Data.uid("f");
-        var defs = Data.getTaskFieldDefs();
-        if (defs.some(function (f) { return f.projectId === projectId && f.key === key; })) {
-          App.showToast("A field with that name already exists", true);
-          return;
-        }
-        defs.push({ id: Data.uid("fd"), projectId: projectId, key: key, label: label, type: type });
-        Data.saveTaskFieldDefs(defs);
-        addFieldForm.reset();
-        renderCustomFields();
-        App.showToast("Field added");
-      });
-
       var deleteBtn = document.getElementById("tdDeleteTask");
       if (deleteBtn) deleteBtn.addEventListener("click", function () {
         if (!confirm("Delete this task?")) return;
@@ -238,7 +267,62 @@
         App.showToast("Task removed");
         window.location.href = "project-tasks.html?id=" + projectId;
       });
+
+      var editBtn = document.getElementById("openEditTaskBtn");
+      if (editBtn) editBtn.addEventListener("click", openEditTaskModal);
     }
+
+    var editTaskModal = document.getElementById("editTaskModal");
+    function openEditTaskModal() {
+      document.getElementById("etTitle").value = task.title;
+      document.getElementById("etAssignee").value = task.assignee || "";
+      document.getElementById("etDate").value = task.date || "";
+      document.getElementById("etNotes").value = task.notes || "";
+      editTaskModal.classList.add("show");
+    }
+    function closeEditTaskModal() { editTaskModal.classList.remove("show"); }
+    document.getElementById("closeEditTaskModal").addEventListener("click", closeEditTaskModal);
+    document.getElementById("cancelEditTaskModal").addEventListener("click", closeEditTaskModal);
+    editTaskModal.addEventListener("click", function (e) { if (e.target === editTaskModal) closeEditTaskModal(); });
+    document.getElementById("saveEditTaskBtn").addEventListener("click", function () {
+      saveTaskPatch({
+        title: document.getElementById("etTitle").value.trim() || task.title,
+        assignee: document.getElementById("etAssignee").value.trim(),
+        date: document.getElementById("etDate").value,
+        notes: document.getElementById("etNotes").value.trim()
+      });
+      Data.addTaskActivity(taskId, "Task details edited");
+      closeEditTaskModal();
+      App.showToast("Task updated");
+      render();
+    });
+
+    var completeTaskModal = document.getElementById("completeTaskModal");
+    function openCompleteTaskModal() {
+      document.getElementById("completeTaskForm").reset();
+      completeTaskModal.classList.add("show");
+    }
+    function closeCompleteTaskModal() { completeTaskModal.classList.remove("show"); render(); }
+    document.getElementById("closeCompleteTaskModal").addEventListener("click", closeCompleteTaskModal);
+    document.getElementById("cancelCompleteTaskModal").addEventListener("click", closeCompleteTaskModal);
+    completeTaskModal.addEventListener("click", function (e) { if (e.target === completeTaskModal) closeCompleteTaskModal(); });
+    document.getElementById("saveCompleteTaskBtn").addEventListener("click", function () {
+      var today = Data.isoDate(Data.today());
+      saveTaskPatch({
+        status: "done",
+        completedAt: today,
+        sqft: Number(document.getElementById("ctSqft").value) || 0,
+        completionCost: Number(document.getElementById("ctCost").value) || 0,
+        personsCount: Number(document.getElementById("ctPersons").value) || 0,
+        personInCharge: document.getElementById("ctInCharge").value.trim(),
+        durationDays: Number(document.getElementById("ctDuration").value) || 0,
+        materialUsed: document.getElementById("ctMaterial").value.trim()
+      });
+      Data.addTaskActivity(taskId, "Task marked complete");
+      completeTaskModal.classList.remove("show");
+      App.showToast("Task marked complete");
+      render();
+    });
 
     if (!task) {
       document.getElementById("taskTitleHeading").textContent = "Task not found";
