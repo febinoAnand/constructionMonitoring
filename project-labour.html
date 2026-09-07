@@ -54,12 +54,20 @@
 <div class="modal-overlay" id="attDownloadModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Download Attendance History</h3><p>Choose a date range to export.</p></div>
+      <div><h3>Download Attendance History</h3><p>Choose a file format and date range to export.</p></div>
       <button class="modal-close" id="closeAttDownloadModal">&times;</button>
     </div>
     <div class="modal-body">
       <form id="attDownloadForm">
         <div class="field-grid">
+          <div class="field full">
+            <label>File Format</label>
+            <div class="format-toggle" id="adlFormatToggle">
+              <button type="button" class="format-toggle-btn active" data-format="pdf">PDF</button>
+              <button type="button" class="format-toggle-btn" data-format="csv">CSV</button>
+            </div>
+            <input type="hidden" id="adlFormat" value="pdf">
+          </div>
           <div class="field"><label>From Date</label><input type="date" id="adlFrom"></div>
           <div class="field"><label>To Date</label><input type="date" id="adlTo"></div>
         </div>
@@ -127,8 +135,8 @@
           '<button type="submit" class="btn btn-outline" style="padding:9px 16px">Apply</button>' +
           '<button type="button" class="btn btn-outline" id="attFilterClear" style="padding:9px 16px">Clear</button>' +
         '</form>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Labourer</th><th>Days</th><th>Amount</th>' + (canEditAtt || canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="attBody"></tbody></table></div>' +
-        '<div class="panel-footer-row" style="justify-content:space-between" id="attPager"></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr id="attHeadRow"></tr></thead><tbody id="attBody"></tbody></table></div>' +
+        '<div class="panel-footer-row" style="justify-content:flex-end" id="attPager"></div>' +
         '<div class="panel-footer-row"><button class="btn btn-outline" id="attDownloadBtn">' + App.svg("download") + ' Download</button></div>' +
       '</div>' +
       '<p class="section-subheading" style="margin-top:14px">Wage payments and the per-labourer wage summary have moved to the <a href="project-wages.html?id=' + projectId + '">Wages</a> tab.</p>';
@@ -154,6 +162,16 @@
       input.addEventListener("input", function () { hidden.value = ""; });
     }
     setupCombo("attLabInput", "attComboPanel", "attComboWrap", "attLabId");
+
+    var attSortState = { field: null, dir: "asc" };
+    document.getElementById("attHeadRow").innerHTML =
+      App.sortableTh("Date", "date", attSortState) +
+      App.sortableTh("Labourer", "labourerName", attSortState) +
+      App.sortableTh("Days", "daysWorked", attSortState) +
+      App.sortableTh("Amount", "amount", attSortState) +
+      (canEditAtt || canDelete ? '<th></th>' : '');
+    App.wireSort(document.getElementById("attHeadRow"), attSortState, function () { attPage = 1; renderAttendance(); });
+
     function renderStats() {
       var attendance = Data.getAttendance().filter(function (a) { return a.projectId === projectId; });
       var uniqueLabourers = new Set(attendance.map(function (a) { return a.labourerId; })).size;
@@ -180,19 +198,28 @@
         if (attFrom && a.date < attFrom) return false;
         if (attTo && a.date > attTo) return false;
         return true;
-      }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      });
       document.getElementById("attCount").textContent = all.length + " entries";
 
-      var totalPages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
-      attPage = Math.min(attPage, totalPages);
-      var pageItems = all.slice((attPage - 1) * PAGE_SIZE, attPage * PAGE_SIZE);
+      all = App.sortRows(
+        all,
+        attSortState.field ? attSortState : { field: "date", dir: "desc" },
+        function (a, field) {
+          if (field === "labourerName") { var lb = Data.getLabourers().find(function (l) { return l.id === a.labourerId; }); return lb ? lb.name : ""; }
+          if (field === "amount") return a.daysWorked * a.wageRate;
+          return a[field];
+        }
+      );
+
+      var pg = App.paginate(all, attPage, PAGE_SIZE);
+      attPage = pg.page;
 
       var body = document.getElementById("attBody");
       var showActions = canEditAtt || canDelete;
-      if (!pageItems.length) {
+      if (!pg.pageItems.length) {
         body.innerHTML = '<tr><td colspan="' + (showActions ? 5 : 4) + '"><div class="empty-state compact">' + App.svg("calendar") + '<p>No attendance recorded in this range.</p></div></td></tr>';
       } else {
-        body.innerHTML = pageItems.map(function (a) {
+        body.innerHTML = pg.pageItems.map(function (a) {
           var lab = Data.getLabourers().find(function (l) { return l.id === a.labourerId; });
           return '<tr>' +
             '<td>' + Data.displayDate(a.date) + '</td>' +
@@ -207,16 +234,7 @@
         }).join("");
       }
 
-      document.getElementById("attPager").innerHTML =
-        '<span class="desc-cell">Page ' + attPage + ' of ' + totalPages + '</span>' +
-        '<span style="display:flex;gap:8px">' +
-          '<button class="btn btn-outline" id="attPrev" style="padding:7px 14px" ' + (attPage <= 1 ? "disabled" : "") + '>Prev</button>' +
-          '<button class="btn btn-outline" id="attNext" style="padding:7px 14px" ' + (attPage >= totalPages ? "disabled" : "") + '>Next</button>' +
-        '</span>';
-      var prevBtn = document.getElementById("attPrev");
-      var nextBtn = document.getElementById("attNext");
-      if (prevBtn) prevBtn.addEventListener("click", function () { attPage--; renderAttendance(); });
-      if (nextBtn) nextBtn.addEventListener("click", function () { attPage++; renderAttendance(); });
+      App.renderPager(document.getElementById("attPager"), attPage, pg.totalPages, function (newPage) { attPage = newPage; renderAttendance(); });
     }
 
     function renderAll() { renderStats(); renderAttendance(); }
@@ -300,15 +318,25 @@
     document.getElementById("attDownloadBtn").addEventListener("click", function () {
       document.getElementById("adlFrom").value = attFrom || "";
       document.getElementById("adlTo").value = attTo || Data.isoDate(Data.today());
+      document.getElementById("adlFormat").value = "pdf";
+      document.querySelectorAll("#adlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-format") === "pdf"); });
       attDownloadModal.classList.add("show");
+    });
+    document.getElementById("adlFormatToggle").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-format]");
+      if (!btn) return;
+      document.querySelectorAll("#adlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.getElementById("adlFormat").value = btn.getAttribute("data-format");
     });
     function closeAttDownloadModal() { attDownloadModal.classList.remove("show"); }
     document.getElementById("closeAttDownloadModal").addEventListener("click", closeAttDownloadModal);
     document.getElementById("cancelAttDownloadModal").addEventListener("click", closeAttDownloadModal);
     attDownloadModal.addEventListener("click", function (e) { if (e.target === attDownloadModal) closeAttDownloadModal(); });
     document.getElementById("confirmAttDownloadBtn").addEventListener("click", function () {
+      var format = document.getElementById("adlFormat").value.toUpperCase();
       closeAttDownloadModal();
-      App.showToast("Your file is downloading...");
+      App.showToast("Your " + format + " file is downloading...");
     });
 
     renderAll();

@@ -68,8 +68,8 @@
   var project = Data.getProjects().find(function (p) { return p.id === projectId; });
   App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: "Expenses" });
 
-  var categoryLabels = { transport: "Transport", equipment_rental: "Equipment Rental", permits_fees: "Permits & Fees", utilities: "Utilities", misc: "Miscellaneous", wages: "Wages" };
-  var categoryChip = { transport: "chip-blue", equipment_rental: "chip-amber", permits_fees: "chip-slate", utilities: "chip-green", misc: "chip-pink", wages: "chip-teal" };
+  var categoryLabels = { transport: "Transport", equipment_rental: "Equipment Rental", permits_fees: "Permits & Fees", utilities: "Utilities", misc: "Miscellaneous", wages: "Wages", supervisor_salary: "Supervisor Salary", task_completion: "Task Completion Cost" };
+  var categoryChip = { transport: "chip-blue", equipment_rental: "chip-amber", permits_fees: "chip-slate", utilities: "chip-green", misc: "chip-pink", wages: "chip-teal", supervisor_salary: "chip-purple", task_completion: "chip-orange" };
 
   if (!project || !App.guardProjectAccess(projectId)) {
     document.getElementById("projName").textContent = project ? "Access restricted" : "Project not found";
@@ -95,15 +95,31 @@
       '</div>' +
       '<div class="table-card" style="margin-top:20px">' +
         '<div class="table-toolbar"><span class="toolbar-meta">Every expense for this project — transport, equipment, permits, utilities, misc &amp; wages</span></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Category</th><th>Description</th><th class="text-right">Amount</th><th></th></tr></thead><tbody id="fullBody"></tbody><tfoot id="fullFoot"></tfoot></table></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr id="fullHeadRow"></tr></thead><tbody id="fullBody"></tbody><tfoot id="fullFoot"></tfoot></table></div>' +
+        '<div class="panel-footer-row" style="justify-content:flex-end" id="fullPager"></div>' +
       '</div>';
 
     document.getElementById("fDate").value = Data.isoDate(Data.today());
+
+    var fullSortState = { field: null, dir: "asc" };
+    var fullPage = 1;
+    var FULL_PAGE_SIZE = 10;
+
+    document.getElementById("fullHeadRow").innerHTML =
+      App.sortableTh("Date", "date", fullSortState) +
+      App.sortableTh("Category", "category", fullSortState) +
+      '<th>Description</th>' +
+      App.sortableTh("Amount", "amount", fullSortState, "text-right") +
+      '<th></th>';
+    App.wireSort(document.getElementById("fullHeadRow"), fullSortState, function () { fullPage = 1; renderAll(); });
 
     function renderAll() {
       var expenses = Data.getExpenses().filter(function (e) { return e.projectId === projectId; });
       var wagePayments = Data.getWagePayments().filter(function (p) { return p.projectId === projectId; });
       var labourers = Data.getLabourers();
+
+      var supervisors = Business.getSupervisorsForProject(projectId);
+      var today = Data.isoDate(Data.today());
 
       var merged = expenses.map(function (e) {
         return { date: e.date, category: e.category, description: e.description, amount: e.amount, id: e.id, isWage: false };
@@ -114,27 +130,35 @@
           description: (p.type === "advance" ? "Advance to " : "Wage payment to ") + (lab ? lab.name : "labourer") + (p.notes ? " — " + p.notes : ""),
           amount: p.amount, id: p.id, isWage: true
         };
-      })).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      })).concat(supervisors.filter(function (u) { return u.monthlySalary; }).map(function (u) {
+        return {
+          date: today, category: "supervisor_salary",
+          description: "Monthly salary — " + u.name,
+          amount: u.monthlySalary, id: "supsal_" + u.id, isSupervisorSalary: true
+        };
+      }));
 
       var total = merged.reduce(function (s, e) { return s + e.amount; }, 0);
       var byCat = {};
       merged.forEach(function (e) { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
+      var mergedByDate = App.sortRows(merged, { field: "date", dir: "desc" });
 
       document.getElementById("statGrid").innerHTML =
-        '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(total) + '</div><div class="stat-label">Total expenses (incl. wages)</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(total) + '</div><div class="stat-label">Total expenses (incl. wages &amp; salary)</div></div>' +
         '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("fileText") + '</div><div class="stat-value">' + merged.length + '</div><div class="stat-label">Entries logged</div></div>' +
-        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("calendar") + '</div><div class="stat-value">' + (merged[0] ? Data.displayDate(merged[0].date) : "—") + '</div><div class="stat-label">Most recent</div></div>';
+        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("calendar") + '</div><div class="stat-value">' + (mergedByDate[0] ? Data.displayDate(mergedByDate[0].date) : "—") + '</div><div class="stat-label">Most recent</div></div>';
 
       Charts.renderDonutChart(document.getElementById("catChart"), Object.keys(byCat).map(function (k) {
         return { label: categoryLabels[k] || k, value: byCat[k] };
       }), { centerLabel: "Total", formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
 
       var materialSummary = Business.getMaterialCostBreakdown(projectId);
-      var combinedCost = Business.getProjectCost(projectId).totalCashSpent;
+      var cost = Business.getProjectCost(projectId);
       document.getElementById("materialStatGrid").innerHTML =
         '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("truck") + '</div><div class="stat-value">₹' + Charts.fmtCompact(materialSummary.totalPurchaseCost) + '</div><div class="stat-label">Material purchase (billing)</div></div>' +
         '<div class="stat-card"><div class="stat-icon icon-amber">' + App.svg("box") + '</div><div class="stat-value">₹' + Charts.fmtCompact(materialSummary.totalUsageCost) + '</div><div class="stat-label">Material usage (consumed)</div></div>' +
-        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(combinedCost) + '</div><div class="stat-label">Total project cost (materials + wages + other)</div></div>';
+        '<div class="stat-card"><div class="stat-icon icon-pink">' + App.svg("hardHat") + '</div><div class="stat-value">₹' + Charts.fmtCompact(cost.supervisorSalary) + '</div><div class="stat-label">Supervisor salary</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(cost.totalCashSpent) + '</div><div class="stat-label">Total project cost (materials + wages + salary + other)</div></div>';
 
       document.getElementById("materialBody").innerHTML = materialSummary.rows.length
         ? materialSummary.rows.map(function (r) {
@@ -150,7 +174,7 @@
         : '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("box") + '<p>No material activity for this project yet.</p></div></td></tr>';
 
       document.getElementById("expCount").textContent = merged.length;
-      document.getElementById("miniBody").innerHTML = merged.slice(0, 6).map(function (e) {
+      document.getElementById("miniBody").innerHTML = mergedByDate.slice(0, 6).map(function (e) {
         return '<tr><td>' + Data.displayDate(e.date) + '</td><td><span class="chip ' + categoryChip[e.category] + '">' + categoryLabels[e.category] + '</span></td><td class="total-amount text-right">₹' + e.amount + '</td></tr>';
       }).join("") || '<tr><td colspan="3"><div class="empty-state compact">' + App.svg("wallet") + '<p>No expenses yet.</p></div></td></tr>';
 
@@ -159,8 +183,12 @@
       if (!merged.length) {
         fullBody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("wallet") + '<p>No expenses logged for this project yet.</p></div></td></tr>';
         fullFoot.innerHTML = "";
+        document.getElementById("fullPager").innerHTML = "";
       } else {
-        fullBody.innerHTML = merged.map(function (e) {
+        var fullSorted = App.sortRows(merged, fullSortState.field ? fullSortState : { field: "date", dir: "desc" });
+        var pg = App.paginate(fullSorted, fullPage, FULL_PAGE_SIZE);
+        fullPage = pg.page;
+        fullBody.innerHTML = pg.pageItems.map(function (e) {
           return '<tr>' +
             '<td>' + Data.displayDate(e.date) + '</td>' +
             '<td><span class="chip ' + categoryChip[e.category] + '">' + categoryLabels[e.category] + '</span></td>' +
@@ -168,10 +196,13 @@
             '<td class="total-amount text-right">₹' + e.amount + '</td>' +
             (e.isWage
               ? '<td><span class="desc-cell">' + App.svg("coins") + ' via Wages tab</span></td>'
+              : e.isSupervisorSalary
+              ? '<td><span class="desc-cell">' + App.svg("hardHat") + ' via Users page</span></td>'
               : (canDelete ? '<td><button class="action-trigger" data-del="' + e.id + '">' + App.svg("trash") + '</button></td>' : '<td></td>')) +
           '</tr>';
         }).join("");
         fullFoot.innerHTML = '<tr class="table-total-row"><td colspan="3">Total (all categories)</td><td class="total-amount text-right">₹' + total.toLocaleString("en-IN") + '</td><td></td></tr>';
+        App.renderPager(document.getElementById("fullPager"), fullPage, pg.totalPages, function (newPage) { fullPage = newPage; renderAll(); });
       }
     }
 

@@ -28,29 +28,6 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="editTaskModal">
-  <div class="modal-box">
-    <div class="modal-header">
-      <div><h3>Edit Task</h3><p>Update the core task details.</p></div>
-      <button class="modal-close" id="closeEditTaskModal">&times;</button>
-    </div>
-    <div class="modal-body">
-      <form id="editTaskForm">
-        <div class="field-grid">
-          <div class="field full"><label>Title</label><input type="text" id="etTitle"></div>
-          <div class="field full"><label>Assignee</label><input type="text" id="etAssignee"></div>
-          <div class="field"><label>Date</label><input type="date" id="etDate"></div>
-          <div class="field full"><label>Notes</label><textarea id="etNotes" rows="4"></textarea></div>
-        </div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" id="cancelEditTaskModal">Cancel</button>
-      <button class="btn btn-primary" id="saveEditTaskBtn">Save Changes</button>
-    </div>
-  </div>
-</div>
-
 <div class="modal-overlay" id="completeTaskModal">
   <div class="modal-box">
     <div class="modal-header">
@@ -125,14 +102,13 @@
       document.getElementById("pageBody").innerHTML =
         '<div class="detail-grid">' +
           '<div class="detail-card">' +
-            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("columns") + '</span>Task Details<span class="status-pill ' + statusPillClass(task.status) + '" style="margin-left:auto">' + statusMeta(task.status).label + '</span>' +
-              (canUpdate ? '<button type="button" class="btn btn-outline" id="openEditTaskBtn" style="margin-left:10px;padding:6px 12px;font-size:12px">' + App.svg("edit") + ' Edit</button>' : '') +
-            '</div>' +
+            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("columns") + '</span>Task Details<span class="status-pill ' + statusPillClass(task.status) + '" style="margin-left:auto">' + statusMeta(task.status).label + '</span></div>' +
             '<div style="padding:20px">' +
               '<div class="field-grid">' +
                 '<div class="field full"><label>Title</label><input type="text" id="tdTitle"></div>' +
                 '<div class="field"><label>Status</label><select id="tdStatus"></select></div>' +
                 '<div class="field"><label>Date</label><input type="date" id="tdDate"></div>' +
+                '<div class="field"><label>Completed On</label><input type="date" id="tdCompletedAt"></div>' +
                 '<div class="field full">' +
                   '<label>Assignee</label>' +
                   '<div style="display:flex;gap:8px">' +
@@ -153,6 +129,14 @@
             '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("clock") + '</span>Activity</div>' +
             '<div id="activityFeed" style="padding:18px 20px"></div>' +
           '</div>' +
+          '<div class="detail-card" style="grid-column:1 / -1">' +
+            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("check") + '</span>Subtasks &amp; Progress</div>' +
+            '<div style="padding:20px">' +
+              '<div id="taskProgressBar" style="margin-bottom:16px"></div>' +
+              '<div class="checklist-box subtask-list" id="subtaskList"></div>' +
+              (canUpdate ? '<div class="subtask-add-row"><input type="text" id="newSubtaskInput" placeholder="Add a subtask, then press Enter"><button type="button" class="btn btn-outline" id="addSubtaskBtn">+ Add</button></div>' : '') +
+            '</div>' +
+          '</div>' +
         '</div>';
 
       var statusSelect = document.getElementById("tdStatus");
@@ -162,15 +146,93 @@
       document.getElementById("tdTitle").value = task.title;
       document.getElementById("tdAssignee").value = task.assignee || "";
       document.getElementById("tdDate").value = task.date || "";
+      document.getElementById("tdCompletedAt").value = task.completedAt || "";
       document.getElementById("tdNotes").value = task.notes || "";
 
       var readOnly = !canUpdate;
-      ["tdTitle", "tdStatus", "tdAssignee", "tdDate", "tdNotes"].forEach(function (id) {
+      ["tdTitle", "tdStatus", "tdAssignee", "tdDate", "tdCompletedAt", "tdNotes"].forEach(function (id) {
         document.getElementById(id).disabled = readOnly;
       });
 
       renderActivity();
+      renderSubtaskProgress();
+      renderSubtaskList();
       wireEvents();
+    }
+
+    function renderSubtaskProgress() {
+      var container = document.getElementById("taskProgressBar");
+      if (!container) return;
+      var prog = Business.getTaskProgress(task);
+      Charts.renderProgressBar(container, prog.percent, {
+        metaText: prog.totalCount > 0 ? (prog.doneCount + " of " + prog.totalCount + " subtasks done") : "No subtasks yet — based on task status"
+      });
+    }
+
+    function renderSubtaskList() {
+      var listEl = document.getElementById("subtaskList");
+      if (!listEl) return;
+      var subtasks = task.subtasks || [];
+      if (!subtasks.length) {
+        listEl.innerHTML = '<div class="empty-state compact" style="padding:14px 8px"><p>No subtasks yet. Break this task down into smaller steps below.</p></div>';
+        return;
+      }
+      listEl.innerHTML = subtasks.map(function (s) {
+        return '<div class="subtask-row">' +
+          '<input type="checkbox" data-subtask-toggle="' + s.id + '"' + (s.done ? ' checked' : '') + (canUpdate ? '' : ' disabled') + '>' +
+          '<span class="subtask-title' + (s.done ? ' done' : '') + '">' + s.title + '</span>' +
+          (canUpdate ? '<button type="button" class="action-trigger" data-subtask-edit="' + s.id + '" title="Edit subtask">' + App.svg("edit") + '</button>' : '') +
+          (canUpdate ? '<button type="button" class="action-trigger" data-subtask-del="' + s.id + '" title="Remove subtask">' + App.svg("trash") + '</button>' : '') +
+        '</div>';
+      }).join("");
+    }
+
+    function editSubtaskInline(btn) {
+      var id = btn.getAttribute("data-subtask-edit");
+      var row = btn.closest(".subtask-row");
+      var titleSpan = row.querySelector(".subtask-title");
+      var currentTitle = titleSpan.textContent;
+      var input = document.createElement("input");
+      input.type = "text";
+      input.className = "subtask-edit-input";
+      input.value = currentTitle;
+      titleSpan.replaceWith(input);
+      input.focus();
+      input.select();
+
+      var committed = false;
+      function commit() {
+        if (committed) return;
+        committed = true;
+        var newTitle = input.value.trim();
+        if (newTitle && newTitle !== currentTitle) {
+          var subtasks = (task.subtasks || []).map(function (s) { return s.id === id ? Object.assign({}, s, { title: newTitle }) : s; });
+          saveTaskPatch({ subtasks: subtasks });
+          Data.addTaskActivity(taskId, 'Subtask renamed: "' + currentTitle + '" → "' + newTitle + '"');
+          renderActivity();
+        }
+        renderSubtaskList();
+      }
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); commit(); }
+        else if (e.key === "Escape") { e.preventDefault(); committed = true; renderSubtaskList(); }
+      });
+      input.addEventListener("blur", commit);
+    }
+
+    function addSubtaskFromInput() {
+      var input = document.getElementById("newSubtaskInput");
+      if (!input) return;
+      var title = input.value.trim();
+      if (!title) return;
+      var subtasks = (task.subtasks || []).concat([{ id: Data.uid("st"), title: title, done: false }]);
+      saveTaskPatch({ subtasks: subtasks });
+      Data.addTaskActivity(taskId, "Subtask added: " + title);
+      input.value = "";
+      input.focus();
+      renderSubtaskProgress();
+      renderSubtaskList();
+      renderActivity();
     }
 
     function completionDetailsHtml() {
@@ -204,7 +266,7 @@
       Object.assign(t, patch);
       Data.saveTasks(tasks);
       task = t;
-      if (!wasDone && t.status === "done") syncCompletionReport(t);
+      if (!wasDone && t.status === "done") { syncCompletionReport(t); syncCompletionExpense(t); }
     }
 
     /* Mirrors the same auto-report logic used on the board — completing a task
@@ -225,6 +287,31 @@
         });
       }
       Data.saveWorkReports(reports);
+    }
+
+    /* Auto-fills the Expenses tab with the material cost captured on task completion,
+       so the cost of materials used doesn't need a separate manual expense entry. */
+    function syncCompletionExpense(t) {
+      var expenses = Data.getExpenses();
+      var existing = expenses.find(function (e) { return e.taskId === t.id && e.category === "task_completion"; });
+      var cost = t.completionCost || 0;
+      if (cost <= 0) {
+        if (existing) Data.saveExpenses(expenses.filter(function (e) { return e.id !== existing.id; }));
+        return;
+      }
+      var desc = "Task completed: " + t.title + (t.materialUsed ? " — Materials: " + t.materialUsed : "");
+      if (existing) {
+        existing.amount = cost;
+        existing.description = desc;
+        existing.date = t.completedAt || Data.isoDate(Data.today());
+      } else {
+        expenses.push({
+          id: Data.uid("ex"), projectId: projectId, category: "task_completion",
+          amount: cost, date: t.completedAt || Data.isoDate(Data.today()),
+          description: desc, taskId: t.id
+        });
+      }
+      Data.saveExpenses(expenses);
     }
 
     function wireEvents() {
@@ -249,6 +336,12 @@
       });
       document.getElementById("tdAssignee").addEventListener("change", function () { saveTaskPatch({ assignee: this.value.trim() }); });
       document.getElementById("tdDate").addEventListener("change", function () { saveTaskPatch({ date: this.value }); });
+      document.getElementById("tdCompletedAt").addEventListener("change", function () {
+        var newDate = this.value || null;
+        if (newDate && task.status !== "done") { openCompleteTaskModal(newDate); return; }
+        saveTaskPatch({ completedAt: newDate });
+        renderTimeline();
+      });
       document.getElementById("tdNotes").addEventListener("change", function () { saveTaskPatch({ notes: this.value }); });
 
       var assignBtn = document.getElementById("assignToMeBtn");
@@ -268,41 +361,53 @@
         window.location.href = "project-tasks.html?id=" + projectId;
       });
 
-      var editBtn = document.getElementById("openEditTaskBtn");
-      if (editBtn) editBtn.addEventListener("click", openEditTaskModal);
-    }
-
-    var editTaskModal = document.getElementById("editTaskModal");
-    function openEditTaskModal() {
-      document.getElementById("etTitle").value = task.title;
-      document.getElementById("etAssignee").value = task.assignee || "";
-      document.getElementById("etDate").value = task.date || "";
-      document.getElementById("etNotes").value = task.notes || "";
-      editTaskModal.classList.add("show");
-    }
-    function closeEditTaskModal() { editTaskModal.classList.remove("show"); }
-    document.getElementById("closeEditTaskModal").addEventListener("click", closeEditTaskModal);
-    document.getElementById("cancelEditTaskModal").addEventListener("click", closeEditTaskModal);
-    editTaskModal.addEventListener("click", function (e) { if (e.target === editTaskModal) closeEditTaskModal(); });
-    document.getElementById("saveEditTaskBtn").addEventListener("click", function () {
-      saveTaskPatch({
-        title: document.getElementById("etTitle").value.trim() || task.title,
-        assignee: document.getElementById("etAssignee").value.trim(),
-        date: document.getElementById("etDate").value,
-        notes: document.getElementById("etNotes").value.trim()
+      var subtaskListEl = document.getElementById("subtaskList");
+      if (subtaskListEl) {
+        subtaskListEl.addEventListener("change", function (e) {
+          var cb = e.target.closest("[data-subtask-toggle]");
+          if (!cb) return;
+          var id = cb.getAttribute("data-subtask-toggle");
+          var subtasks = (task.subtasks || []).map(function (s) { return s.id === id ? Object.assign({}, s, { done: cb.checked }) : s; });
+          saveTaskPatch({ subtasks: subtasks });
+          var st = subtasks.find(function (s) { return s.id === id; });
+          Data.addTaskActivity(taskId, (st.done ? "Subtask completed: " : "Subtask reopened: ") + st.title);
+          renderSubtaskProgress();
+          renderSubtaskList();
+          renderActivity();
+          var allDone = subtasks.length > 0 && subtasks.every(function (s) { return s.done; });
+          if (allDone && task.status !== "done") openCompleteTaskModal();
+        });
+        subtaskListEl.addEventListener("click", function (e) {
+          var editBtn = e.target.closest("[data-subtask-edit]");
+          if (editBtn) { editSubtaskInline(editBtn); return; }
+          var btn = e.target.closest("[data-subtask-del]");
+          if (!btn) return;
+          var id = btn.getAttribute("data-subtask-del");
+          var removed = (task.subtasks || []).find(function (s) { return s.id === id; });
+          var subtasks = (task.subtasks || []).filter(function (s) { return s.id !== id; });
+          saveTaskPatch({ subtasks: subtasks });
+          if (removed) Data.addTaskActivity(taskId, "Subtask removed: " + removed.title);
+          renderSubtaskProgress();
+          renderSubtaskList();
+          renderActivity();
+        });
+      }
+      var addSubtaskBtn = document.getElementById("addSubtaskBtn");
+      if (addSubtaskBtn) addSubtaskBtn.addEventListener("click", addSubtaskFromInput);
+      var newSubtaskInputEl = document.getElementById("newSubtaskInput");
+      if (newSubtaskInputEl) newSubtaskInputEl.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); addSubtaskFromInput(); }
       });
-      Data.addTaskActivity(taskId, "Task details edited");
-      closeEditTaskModal();
-      App.showToast("Task updated");
-      render();
-    });
+    }
 
     var completeTaskModal = document.getElementById("completeTaskModal");
-    function openCompleteTaskModal() {
+    var pendingCompleteDate = null;
+    function openCompleteTaskModal(presetDate) {
+      pendingCompleteDate = presetDate || null;
       document.getElementById("completeTaskForm").reset();
       completeTaskModal.classList.add("show");
     }
-    function closeCompleteTaskModal() { completeTaskModal.classList.remove("show"); render(); }
+    function closeCompleteTaskModal() { pendingCompleteDate = null; completeTaskModal.classList.remove("show"); render(); }
     document.getElementById("closeCompleteTaskModal").addEventListener("click", closeCompleteTaskModal);
     document.getElementById("cancelCompleteTaskModal").addEventListener("click", closeCompleteTaskModal);
     completeTaskModal.addEventListener("click", function (e) { if (e.target === completeTaskModal) closeCompleteTaskModal(); });
@@ -310,7 +415,7 @@
       var today = Data.isoDate(Data.today());
       saveTaskPatch({
         status: "done",
-        completedAt: today,
+        completedAt: pendingCompleteDate || today,
         sqft: Number(document.getElementById("ctSqft").value) || 0,
         completionCost: Number(document.getElementById("ctCost").value) || 0,
         personsCount: Number(document.getElementById("ctPersons").value) || 0,
@@ -319,6 +424,7 @@
         materialUsed: document.getElementById("ctMaterial").value.trim()
       });
       Data.addTaskActivity(taskId, "Task marked complete");
+      pendingCompleteDate = null;
       completeTaskModal.classList.remove("show");
       App.showToast("Task marked complete");
       render();

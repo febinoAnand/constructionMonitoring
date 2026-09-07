@@ -82,12 +82,36 @@
       '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
       '<div class="panel full-panel">' +
         '<div class="panel-header"><h3>Wage Payments</h3>' + (canCreate ? '<button class="btn btn-outline" id="addPayBtn" style="padding:7px 14px;font-size:12.5px">+ Record Payment</button>' : '') + '</div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Labourer</th><th>Type</th><th>Amount</th></tr></thead><tbody id="payBody"></tbody></table></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr id="payHeadRow"></tr></thead><tbody id="payBody"></tbody></table></div>' +
+        '<div class="panel-footer-row" style="justify-content:flex-end" id="payPager"></div>' +
       '</div>' +
       '<div class="panel full-panel" style="margin-top:20px">' +
         '<div class="panel-header"><h3>Wage Summary by Labourer</h3></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Labourer</th><th>Skill</th><th>Days Worked</th><th>Earned</th><th>Paid</th><th>Owed</th></tr></thead><tbody id="summaryBody"></tbody></table></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr id="summaryHeadRow"></tr></thead><tbody id="summaryBody"></tbody></table></div>' +
+        '<div class="panel-footer-row" style="justify-content:flex-end" id="summaryPager"></div>' +
       '</div>';
+
+    var paySortState = { field: null, dir: "asc" };
+    var payPage = 1;
+    var summarySortState = { field: null, dir: "asc" };
+    var summaryPage = 1;
+    var WAGE_PAGE_SIZE = 10;
+
+    document.getElementById("payHeadRow").innerHTML =
+      App.sortableTh("Date", "date", paySortState) +
+      App.sortableTh("Labourer", "labourerName", paySortState) +
+      App.sortableTh("Type", "type", paySortState) +
+      App.sortableTh("Amount", "amount", paySortState);
+    App.wireSort(document.getElementById("payHeadRow"), paySortState, function () { payPage = 1; renderPayments(); });
+
+    document.getElementById("summaryHeadRow").innerHTML =
+      App.sortableTh("Labourer", "name", summarySortState) +
+      App.sortableTh("Skill", "skill", summarySortState) +
+      App.sortableTh("Days Worked", "daysWorked", summarySortState) +
+      App.sortableTh("Earned", "earned", summarySortState) +
+      App.sortableTh("Paid", "paid", summarySortState) +
+      App.sortableTh("Owed", "owed", summarySortState);
+    App.wireSort(document.getElementById("summaryHeadRow"), summarySortState, function () { summaryPage = 1; renderSummary(); });
 
     document.getElementById("payDate").value = Data.isoDate(Data.today());
 
@@ -122,14 +146,23 @@
     }
 
     function renderPayments() {
-      var payments = Data.getWagePayments().filter(function (p) { return p.projectId === projectId; })
-        .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      var payments = App.sortRows(
+        Data.getWagePayments().filter(function (p) { return p.projectId === projectId; }),
+        paySortState.field ? paySortState : { field: "date", dir: "desc" },
+        function (p, field) {
+          if (field === "labourerName") { var lb = Data.getLabourers().find(function (l) { return l.id === p.labourerId; }); return lb ? lb.name : ""; }
+          return p[field];
+        }
+      );
       var body = document.getElementById("payBody");
       if (!payments.length) {
         body.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("coins") + '<p>No payments recorded yet.</p></div></td></tr>';
+        document.getElementById("payPager").innerHTML = "";
         return;
       }
-      body.innerHTML = payments.map(function (p) {
+      var pg = App.paginate(payments, payPage, WAGE_PAGE_SIZE);
+      payPage = pg.page;
+      body.innerHTML = pg.pageItems.map(function (p) {
         var lab = Data.getLabourers().find(function (l) { return l.id === p.labourerId; });
         return '<tr>' +
           '<td>' + Data.displayDate(p.date) + '</td>' +
@@ -138,6 +171,7 @@
           '<td class="total-amount">₹' + p.amount + '</td>' +
         '</tr>';
       }).join("");
+      App.renderPager(document.getElementById("payPager"), payPage, pg.totalPages, function (newPage) { payPage = newPage; renderPayments(); });
     }
 
     function renderSummary() {
@@ -146,20 +180,33 @@
       var body = document.getElementById("summaryBody");
       if (!labIds.length) {
         body.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("people") + '<p>No labourers have worked on this project yet.</p></div></td></tr>';
+        document.getElementById("summaryPager").innerHTML = "";
         return;
       }
-      body.innerHTML = labIds.map(function (id) {
+      var rows = labIds.map(function (id) {
         var lab = Data.getLabourers().find(function (l) { return l.id === id; });
         var sum = Business.getWageSummary(id, { projectId: projectId });
+        return { lab: lab, daysWorked: sum.daysWorked, earned: sum.earned, paid: sum.paid, owed: sum.owed };
+      });
+      rows = App.sortRows(rows, summarySortState, function (r, field) {
+        if (field === "name") return r.lab ? r.lab.name : "";
+        if (field === "skill") return r.lab ? r.lab.skill : "";
+        return r[field];
+      });
+      var pg = App.paginate(rows, summaryPage, WAGE_PAGE_SIZE);
+      summaryPage = pg.page;
+      body.innerHTML = pg.pageItems.map(function (row) {
+        var lab = row.lab;
         return '<tr>' +
           '<td>' + (lab ? lab.name : "—") + '</td>' +
           '<td><span class="chip chip-amber">' + (lab ? lab.skill : "") + '</span></td>' +
-          '<td>' + sum.daysWorked + '</td>' +
-          '<td>₹' + Math.round(sum.earned) + '</td>' +
-          '<td>₹' + Math.round(sum.paid) + '</td>' +
-          '<td class="total-amount">₹' + Math.round(sum.owed) + '</td>' +
+          '<td>' + row.daysWorked + '</td>' +
+          '<td>₹' + Math.round(row.earned) + '</td>' +
+          '<td>₹' + Math.round(row.paid) + '</td>' +
+          '<td class="total-amount">₹' + Math.round(row.owed) + '</td>' +
         '</tr>';
       }).join("");
+      App.renderPager(document.getElementById("summaryPager"), summaryPage, pg.totalPages, function (newPage) { summaryPage = newPage; renderSummary(); });
     }
 
     function renderAll() { renderStats(); renderPayments(); renderSummary(); }

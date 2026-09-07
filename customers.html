@@ -38,10 +38,11 @@
         </div>
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>Customer</th><th>Contact</th><th>Projects</th><th>Total Billed</th><th>Paid</th><th>Balance Due</th><th></th></tr></thead>
+            <thead><tr id="tableHeadRow"></tr></thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="panel-footer-row" style="justify-content:flex-end" id="tablePager"></div>
       </div>
     </main>
   </div>
@@ -91,6 +92,24 @@
     if (!canCreate) document.getElementById("addBtn").style.display = "none";
 
     var searchTerm = "";
+    var sortState = { field: null, dir: "asc" };
+    var page = 1;
+    var PAGE_SIZE = 10;
+
+    document.getElementById("tableHeadRow").innerHTML =
+      App.sortableTh("Customer", "name", sortState) +
+      App.sortableTh("Contact", "contactPerson", sortState) +
+      '<th>Projects</th>' +
+      App.sortableTh("Total Billed", "invoiced", sortState) +
+      App.sortableTh("Paid", "received", sortState) +
+      App.sortableTh("Balance Due", "balanceDue", sortState) +
+      '<th></th>';
+    App.wireSort(document.getElementById("tableHeadRow"), sortState, function () { page = 1; render(); });
+
+    function ledgerAccessor(c, field) {
+      if (field === "invoiced" || field === "received" || field === "balanceDue") return Business.getCustomerLedger(c.id)[field];
+      return c[field];
+    }
 
     function renderStats() {
       var customers = Data.getCustomers();
@@ -118,10 +137,15 @@
       var tbody = document.getElementById("tableBody");
       if (!customers.length) {
         tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state compact">' + App.svg("briefcase") + '<p>No customers yet.</p></div></td></tr>';
+        document.getElementById("tablePager").innerHTML = "";
         return;
       }
 
-      tbody.innerHTML = customers.map(function (c) {
+      customers = App.sortRows(customers, sortState, ledgerAccessor);
+      var pg = App.paginate(customers, page, PAGE_SIZE);
+      page = pg.page;
+
+      tbody.innerHTML = pg.pageItems.map(function (c) {
         var linkedProjects = projects.filter(function (p) { return p.customerIds && p.customerIds.indexOf(c.id) !== -1; });
         var l = Business.getCustomerLedger(c.id);
         return '<tr>' +
@@ -143,9 +167,11 @@
           '</td>' +
         '</tr>';
       }).join("");
+
+      App.renderPager(document.getElementById("tablePager"), page, pg.totalPages, function (newPage) { page = newPage; render(); });
     }
 
-    document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+    document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; page = 1; render(); });
 
     var openMenuId = null;
     document.addEventListener("click", function (e) {

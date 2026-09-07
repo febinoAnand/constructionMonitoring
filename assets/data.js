@@ -18,7 +18,7 @@
   var EXPENSES_KEY = "cui_expenses_v1";
   var WORK_REPORTS_KEY = "cui_work_reports_v1";
   var PROGRESS_KEY = "cui_progress_v1";
-  var TASKS_KEY = "cui_tasks_v2";
+  var TASKS_KEY = "cui_tasks_v3";
   var TASK_ACTIVITY_KEY = "cui_task_activity_v1";
   var CUSTOMERS_KEY = "cui_customers_v1";
   var CUSTOMER_LEDGER_KEY = "cui_customer_ledger_v1";
@@ -587,6 +587,11 @@
         var dayOffset = -((pIdx + i) % 3);
         var createdOffset = dayOffset - 3 - (i % 4);
         var isDone = status === "done";
+        var subtasks = (i % 3 === 0) ? [
+          { id: uid("st"), title: "Prep and material check", done: true },
+          { id: uid("st"), title: "Execute main work", done: isDone || status === "in_progress" },
+          { id: uid("st"), title: "Cleanup and inspection", done: isDone }
+        ] : [];
         tasks.push({
           id: "tk_" + pid + "_" + i,
           projectId: pid,
@@ -596,6 +601,7 @@
           date: isoDate(addDays(t, dayOffset)),
           notes: "",
           customFields: {},
+          subtasks: subtasks,
           createdAt: isoDate(addDays(t, createdOffset)),
           createdBy: supervisorByProject[pid],
           completedAt: isDone ? isoDate(addDays(t, dayOffset)) : null,

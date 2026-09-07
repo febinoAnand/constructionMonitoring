@@ -66,9 +66,21 @@
     });
   }
 
-  /* Cash-basis project cost = inward stock spend + wages actually paid out + other expenses.
-     Deliberately excludes wages *owed* (accrued but unpaid) to avoid double-counting —
-     that figure is surfaced separately via getWageSummary/getProjectWageTotals. */
+  /* Supervisors carry one monthly salary figure (no payment ledger — see user.monthlySalary).
+     Attributed in full to every project they're currently assigned to. */
+  function getSupervisorsForProject(projectId) {
+    return window.Data.getUsers().filter(function (u) {
+      return u.roleId === "r_supervisor" && (u.assignedProjectIds || []).indexOf(projectId) !== -1;
+    });
+  }
+
+  function getSupervisorSalaryTotal(projectId) {
+    return getSupervisorsForProject(projectId).reduce(function (sum, u) { return sum + (u.monthlySalary || 0); }, 0);
+  }
+
+  /* Cash-basis project cost = inward stock spend + wages actually paid out + supervisor
+     salary + other expenses. Deliberately excludes wages *owed* (accrued but unpaid) to
+     avoid double-counting — that figure is surfaced separately via getWageSummary. */
   function getProjectCost(projectId) {
     var stockCost = window.Data.getStockTransactions()
       .filter(function (t) { return t.projectId === projectId && t.type === "inward"; })
@@ -77,6 +89,8 @@
     var wagesPaid = window.Data.getWagePayments()
       .filter(function (p) { return p.projectId === projectId; })
       .reduce(function (sum, p) { return sum + p.amount; }, 0);
+
+    var supervisorSalary = getSupervisorSalaryTotal(projectId);
 
     var otherExpenses = window.Data.getExpenses()
       .filter(function (e) { return e.projectId === projectId; })
@@ -89,8 +103,9 @@
     return {
       stockCost: stockCost,
       wagesPaid: wagesPaid,
+      supervisorSalary: supervisorSalary,
       otherExpenses: otherExpenses,
-      totalCashSpent: stockCost + wagesPaid + otherExpenses,
+      totalCashSpent: stockCost + wagesPaid + supervisorSalary + otherExpenses,
       wagesEarned: wagesEarned,
       wagesOwed: wagesEarned - wagesPaid
     };
@@ -220,6 +235,18 @@
       .concat([{ key: "done", label: "Done", builtin: true }]);
   }
 
+  /* Percent-complete for a task: driven by its subtasks (inner tasks) when it has
+     any, otherwise falls back to a simple done/not-done split on the task status. */
+  function getTaskProgress(task) {
+    var subtasks = task.subtasks || [];
+    if (subtasks.length) {
+      var done = subtasks.filter(function (s) { return s.done; }).length;
+      return { percent: Math.round((done / subtasks.length) * 100), doneCount: done, totalCount: subtasks.length };
+    }
+    var percent = task.status === "done" ? 100 : 0;
+    return { percent: percent, doneCount: 0, totalCount: 0 };
+  }
+
   function getWagesDueTotal(projectId) {
     var labourers = window.Data.getLabourers();
     var total = 0;
@@ -242,6 +269,9 @@
     getCustomerTotalExpenses: getCustomerTotalExpenses,
     getCustomerLedger: getCustomerLedger,
     getMaterialCostBreakdown: getMaterialCostBreakdown,
-    getProjectStatusColumns: getProjectStatusColumns
+    getProjectStatusColumns: getProjectStatusColumns,
+    getSupervisorsForProject: getSupervisorsForProject,
+    getSupervisorSalaryTotal: getSupervisorSalaryTotal,
+    getTaskProgress: getTaskProgress
   };
 })();

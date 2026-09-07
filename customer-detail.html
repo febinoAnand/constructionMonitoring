@@ -77,12 +77,20 @@
 <div class="modal-overlay" id="downloadModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Download Ledger History</h3><p>Choose a date range to export.</p></div>
+      <div><h3>Download Ledger History</h3><p>Choose a file format and date range to export.</p></div>
       <button class="modal-close" id="closeDownloadModal">&times;</button>
     </div>
     <div class="modal-body">
       <form id="downloadForm">
         <div class="field-grid">
+          <div class="field full">
+            <label>File Format</label>
+            <div class="format-toggle" id="dlFormatToggle">
+              <button type="button" class="format-toggle-btn active" data-format="pdf">PDF</button>
+              <button type="button" class="format-toggle-btn" data-format="csv">CSV</button>
+            </div>
+            <input type="hidden" id="dlFormat" value="pdf">
+          </div>
           <div class="field"><label>From Date</label><input type="date" id="dlFrom"></div>
           <div class="field"><label>To Date</label><input type="date" id="dlTo"></div>
         </div>
@@ -135,7 +143,7 @@
           '<div class="panel-header"><h3>Billing by Project</h3><span class="panel-tag">' + linkedProjects.length + ' project(s)</span></div>' +
           '<div class="table-scroll"><table class="data-table data-table-balanced">' +
             '<colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>' +
-            '<thead><tr><th>Project</th><th class="text-right">Invoiced</th><th class="text-right">Received</th><th class="text-right">Balance Due</th></tr></thead>' +
+            '<thead><tr id="byProjectHeadRow"></tr></thead>' +
             '<tbody id="byProjectBody"></tbody><tfoot id="byProjectFoot"></tfoot>' +
           '</table></div>' +
         '</div>' +
@@ -146,9 +154,30 @@
               (canAddEntry ? '<button class="btn btn-primary" id="openAddLedgerBtn" style="padding:8px 16px;font-size:12.5px">+ Add Entry</button>' : '') +
             '</span>' +
           '</div>' +
-          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Project</th><th>Description</th><th class="text-right">Amount</th><th></th></tr></thead><tbody id="ledgerBody"></tbody></table></div>' +
-          '<div class="panel-footer-row"><button class="btn btn-outline" id="downloadBtn">' + App.svg("download") + ' Download</button></div>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr id="ledgerHeadRow"></tr></thead><tbody id="ledgerBody"></tbody></table></div>' +
+          '<div class="panel-footer-row" style="justify-content:space-between"><span id="ledgerPager"></span><button class="btn btn-outline" id="downloadBtn">' + App.svg("download") + ' Download</button></div>' +
         '</div>';
+
+      var byProjectSortState = { field: null, dir: "asc" };
+      var ledgerSortState = { field: null, dir: "asc" };
+      var ledgerPage = 1;
+      var LEDGER_PAGE_SIZE = 10;
+
+      document.getElementById("byProjectHeadRow").innerHTML =
+        App.sortableTh("Project", "name", byProjectSortState) +
+        App.sortableTh("Invoiced", "invoiced", byProjectSortState, "text-right") +
+        App.sortableTh("Received", "received", byProjectSortState, "text-right") +
+        App.sortableTh("Balance Due", "balanceDue", byProjectSortState, "text-right");
+      App.wireSort(document.getElementById("byProjectHeadRow"), byProjectSortState, function () { renderLedger(); });
+
+      document.getElementById("ledgerHeadRow").innerHTML =
+        App.sortableTh("Date", "date", ledgerSortState) +
+        App.sortableTh("Type", "type", ledgerSortState) +
+        App.sortableTh("Project", "projectName", ledgerSortState) +
+        '<th>Description</th>' +
+        App.sortableTh("Amount", "amount", ledgerSortState, "text-right") +
+        '<th></th>';
+      App.wireSort(document.getElementById("ledgerHeadRow"), ledgerSortState, function () { ledgerPage = 1; renderLedger(); });
 
       var eProjectSelect = document.getElementById("eProject");
       eProjectSelect.innerHTML += linkedProjects.map(function (p) { return '<option value="' + p.id + '">' + p.name + '</option>'; }).join("");
@@ -187,12 +216,20 @@
           byProjectFoot.innerHTML = "";
         } else {
           var totalInvoiced = 0, totalReceived = 0;
-          byProjectBody.innerHTML = linkedProjects.map(function (p) {
+          var byProjectRows = linkedProjects.map(function (p) {
             var pEntries = l.entries.filter(function (e) { return e.projectId === p.id; });
             var pInvoiced = pEntries.filter(function (e) { return e.type === "invoice"; }).reduce(function (s, e) { return s + e.amount; }, 0);
             var pReceived = pEntries.filter(function (e) { return e.type === "receipt"; }).reduce(function (s, e) { return s + e.amount; }, 0);
             totalInvoiced += pInvoiced;
             totalReceived += pReceived;
+            return { project: p, invoiced: pInvoiced, received: pReceived, balanceDue: pInvoiced - pReceived };
+          });
+          byProjectRows = App.sortRows(byProjectRows, byProjectSortState, function (r, field) {
+            if (field === "name") return r.project.name;
+            return r[field];
+          });
+          byProjectBody.innerHTML = byProjectRows.map(function (row) {
+            var p = row.project, pInvoiced = row.invoiced, pReceived = row.received;
             return '<tr>' +
               '<td><a href="project-overview.html?id=' + p.id + '"><strong>' + p.name + '</strong></a> <span class="cell-mono">' + p.code + '</span></td>' +
               '<td class="total-amount text-right">₹' + Charts.fmtCompact(pInvoiced) + '</td>' +
@@ -203,14 +240,24 @@
           byProjectFoot.innerHTML = '<tr class="table-total-row"><td>Total</td><td class="total-amount text-right">₹' + Charts.fmtCompact(totalInvoiced) + '</td><td class="total-amount text-right">₹' + Charts.fmtCompact(totalReceived) + '</td><td class="total-amount text-right">₹' + Charts.fmtCompact(totalInvoiced - totalReceived) + '</td></tr>';
         }
 
-        var entries = l.entries.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+        var entries = App.sortRows(
+          l.entries,
+          ledgerSortState.field ? ledgerSortState : { field: "date", dir: "desc" },
+          function (e, field) {
+            if (field === "projectName") { var pr = Data.getProjects().find(function (p) { return p.id === e.projectId; }); return pr ? pr.name : ""; }
+            return e[field];
+          }
+        );
         document.getElementById("entryCount").textContent = entries.length + " entries";
         var body = document.getElementById("ledgerBody");
         if (!entries.length) {
           body.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("wallet") + '<p>No billing history yet.</p></div></td></tr>';
+          document.getElementById("ledgerPager").innerHTML = "";
           return;
         }
-        body.innerHTML = entries.map(function (e) {
+        var ledgerPg = App.paginate(entries, ledgerPage, LEDGER_PAGE_SIZE);
+        ledgerPage = ledgerPg.page;
+        body.innerHTML = ledgerPg.pageItems.map(function (e) {
           var proj = Data.getProjects().find(function (p) { return p.id === e.projectId; });
           return '<tr>' +
             '<td>' + Data.displayDate(e.date) + '</td>' +
@@ -224,6 +271,8 @@
             '</div></td>' +
           '</tr>';
         }).join("");
+
+        App.renderPager(document.getElementById("ledgerPager"), ledgerPage, ledgerPg.totalPages, function (newPage) { ledgerPage = newPage; renderLedger(); });
       }
 
       document.getElementById("pageBody").addEventListener("click", function (e) {
@@ -279,14 +328,24 @@
       if (downloadBtnEl) downloadBtnEl.addEventListener("click", function () {
         document.getElementById("dlFrom").value = "";
         document.getElementById("dlTo").value = Data.isoDate(Data.today());
+        document.getElementById("dlFormat").value = "pdf";
+        document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-format") === "pdf"); });
         downloadModal.classList.add("show");
+      });
+      document.getElementById("dlFormatToggle").addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-format]");
+        if (!btn) return;
+        document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.remove("active"); });
+        btn.classList.add("active");
+        document.getElementById("dlFormat").value = btn.getAttribute("data-format");
       });
       document.getElementById("closeDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
       document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
       downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
       document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
+        var format = document.getElementById("dlFormat").value.toUpperCase();
         downloadModal.classList.remove("show");
-        App.showToast("Your file is downloading...");
+        App.showToast("Your " + format + " file is downloading...");
       });
 
       var addLedgerModal = document.getElementById("addLedgerModal");

@@ -70,10 +70,22 @@
       '</div>' +
       '<div class="panel full-panel">' +
         '<div class="panel-header"><h3>Update History</h3></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>% Complete</th><th>Notes</th>' + (canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="histBody"></tbody></table></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr id="histHeadRow"></tr></thead><tbody id="histBody"></tbody></table></div>' +
+        '<div class="panel-footer-row" style="justify-content:flex-end" id="histPager"></div>' +
       '</div>';
 
     if (document.getElementById("fDate")) document.getElementById("fDate").value = Data.isoDate(Data.today());
+
+    var histSortState = { field: null, dir: "asc" };
+    var histPage = 1;
+    var HIST_PAGE_SIZE = 10;
+
+    document.getElementById("histHeadRow").innerHTML =
+      App.sortableTh("Date", "date", histSortState) +
+      App.sortableTh("% Complete", "percentComplete", histSortState) +
+      '<th>Notes</th>' +
+      (canDelete ? '<th></th>' : '');
+    App.wireSort(document.getElementById("histHeadRow"), histSortState, function () { histPage = 1; renderAll(); });
 
     function renderAll() {
       var est = Business.estimateCompletion(project);
@@ -97,8 +109,12 @@
       var histBody = document.getElementById("histBody");
       if (!updates.length) {
         histBody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("trendingUp") + '<p>No progress updates yet.</p></div></td></tr>';
+        document.getElementById("histPager").innerHTML = "";
       } else {
-        histBody.innerHTML = updates.slice().reverse().map(function (u) {
+        var sortedUpdates = App.sortRows(updates, histSortState.field ? histSortState : { field: "date", dir: "desc" });
+        var pg = App.paginate(sortedUpdates, histPage, HIST_PAGE_SIZE);
+        histPage = pg.page;
+        histBody.innerHTML = pg.pageItems.map(function (u) {
           return '<tr>' +
             '<td>' + Data.displayDate(u.date) + '</td>' +
             '<td><strong>' + u.percentComplete + '%</strong></td>' +
@@ -106,6 +122,7 @@
             (canDelete ? '<td><button class="action-trigger" data-del="' + u.id + '">' + App.svg("trash") + '</button></td>' : '') +
           '</tr>';
         }).join("");
+        App.renderPager(document.getElementById("histPager"), histPage, pg.totalPages, function (newPage) { histPage = newPage; renderAll(); });
       }
     }
 

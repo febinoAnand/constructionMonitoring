@@ -785,6 +785,8 @@ h1, h2, h3,
 .chip-green { color: #15803d; border-color: rgba(21, 128, 61, 0.25); background: rgba(21, 128, 61, 0.09); }
 .chip-slate { color: #475569; border-color: rgba(71, 85, 105, 0.22); background: rgba(71, 85, 105, 0.08); }
 .chip-teal { color: #0f766e; border-color: rgba(15, 118, 110, 0.25); background: rgba(15, 118, 110, 0.09); }
+.chip-purple { color: #7c3aed; border-color: rgba(124, 58, 237, 0.25); background: rgba(124, 58, 237, 0.09); }
+.chip-orange { color: #c2410c; border-color: rgba(226, 98, 47, 0.3); background: rgba(226, 98, 47, 0.12); }
 
 .text-amber { color: #b45309; }
 .text-blue { color: #1d4ed8; }
@@ -1228,6 +1230,90 @@ h1, h2, h3,
   gap: 6px;
 }
 
+.format-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.format-toggle-btn {
+  flex: 1;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.format-toggle-btn:hover { border-color: var(--accent-2); color: var(--accent-2); }
+
+.format-toggle-btn.active {
+  border-color: var(--accent-1);
+  background: rgba(15, 118, 110, 0.09);
+  color: var(--accent-1);
+}
+
+/* ---------- Sortable table headers ---------- */
+
+.sortable-th { cursor: pointer; user-select: none; }
+.sortable-th:hover { color: var(--accent-1); }
+
+.sortable-th-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sort-arrow {
+  font-size: 9px;
+  opacity: 0.35;
+  line-height: 1;
+}
+
+.sort-arrow.active { opacity: 1; color: var(--accent-1); }
+
+/* ---------- Numbered pagination ---------- */
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pager-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.pager-btn:hover:not(:disabled) { border-color: var(--accent-2); color: var(--accent-2); }
+
+.pager-btn.active {
+  background: var(--accent-1);
+  border-color: var(--accent-1);
+  color: #fff;
+}
+
+.pager-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.pager-nav { font-size: 17px; font-weight: 800; }
+
+.pager-ellipsis { padding: 0 4px; color: var(--muted); font-weight: 700; }
+
 .action-trigger {
   width: 32px;
   height: 32px;
@@ -1560,6 +1646,55 @@ h1, h2, h3,
   height: 16px;
   accent-color: var(--accent-1);
   flex-shrink: 0;
+}
+
+.subtask-list { max-height: 280px; }
+
+.subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: 6px;
+}
+
+.subtask-row:hover { background: rgba(15, 118, 110, 0.08); }
+
+.subtask-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-1);
+  flex-shrink: 0;
+}
+
+.subtask-title { flex: 1; font-size: 13px; font-weight: 500; }
+.subtask-title.done { text-decoration: line-through; color: var(--muted); }
+.subtask-row .action-trigger { padding: 4px; opacity: 0.6; }
+.subtask-row .action-trigger:hover { opacity: 1; color: var(--danger); }
+
+.subtask-add-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.subtask-add-row input {
+  flex: 1;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-family: inherit;
+}
+
+.subtask-edit-input {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--accent-2);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
 }
 
 .table-total-row td {
@@ -2582,8 +2717,20 @@ h1, h2, h3,
 .kanban-card-title {
   font-size: 13px;
   font-weight: 700;
-  margin-bottom: 8px;
   line-height: 1.4;
+}
+
+.kanban-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.kanban-card-title-row .status-pill {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .kanban-card-meta {
@@ -2594,6 +2741,18 @@ h1, h2, h3,
   color: var(--muted);
   gap: 8px;
 }
+
+.kanban-card-timeline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.kanban-card-timeline .dot-sep { opacity: 0.5; }
 
 .kanban-card-assignee {
   display: flex;
@@ -2733,7 +2892,7 @@ h1, h2, h3,
   margin-bottom: 8px;
 }
 
-.kanban-quick-add { margin-top: 10px; }
+.kanban-quick-add { margin-bottom: 10px; }
 
 .kanban-quick-add-btn {
   width: 100%;

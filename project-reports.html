@@ -26,6 +26,35 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="downloadModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Download Work Reports</h3><p>Choose a file format and date range to export.</p></div>
+      <button class="modal-close" id="closeDownloadModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="downloadForm">
+        <div class="field-grid">
+          <div class="field full">
+            <label>File Format</label>
+            <div class="format-toggle" id="dlFormatToggle">
+              <button type="button" class="format-toggle-btn active" data-format="pdf">PDF</button>
+              <button type="button" class="format-toggle-btn" data-format="csv">CSV</button>
+            </div>
+            <input type="hidden" id="dlFormat" value="pdf">
+          </div>
+          <div class="field"><label>From Date</label><input type="date" id="dlFrom"></div>
+          <div class="field"><label>To Date</label><input type="date" id="dlTo"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelDownloadModal">Cancel</button>
+      <button class="btn btn-primary" id="confirmDownloadBtn">Download</button>
+    </div>
+  </div>
+</div>
+
 <script src="assets/data.js"></script>
 <script src="assets/business.js"></script>
 <script src="assets/app.js"></script>
@@ -46,15 +75,28 @@
 
     document.getElementById("pageBody").innerHTML =
       '<p class="section-subheading">Reports are generated automatically whenever a task is marked complete on the <a href="project-tasks.html?id=' + projectId + '">Tasks</a> tab.</p>' +
+      '<form class="inline-add-form" id="reportFilterForm" style="padding:0 0 14px">' +
+        '<div class="field"><label>From</label><input type="date" id="repFromInput"></div>' +
+        '<div class="field"><label>To</label><input type="date" id="repToInput"></div>' +
+        '<button type="submit" class="btn btn-outline" style="padding:9px 16px">Apply</button>' +
+        '<button type="button" class="btn btn-outline" id="reportFilterClear" style="padding:9px 16px">Clear</button>' +
+        '<button type="button" class="btn btn-outline" id="downloadBtn" style="padding:9px 16px;margin-left:auto">' + App.svg("download") + ' Download</button>' +
+      '</form>' +
       '<div class="activity-list" id="reportList" style="max-width:820px"></div>';
 
+    var repFrom = "", repTo = "";
+
     function renderReports() {
-      var reports = Data.getWorkReports().filter(function (r) { return r.projectId === projectId; })
-        .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      var reports = Data.getWorkReports().filter(function (r) {
+        if (r.projectId !== projectId) return false;
+        if (repFrom && r.date < repFrom) return false;
+        if (repTo && r.date > repTo) return false;
+        return true;
+      }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
 
       var listEl = document.getElementById("reportList");
       if (!reports.length) {
-        listEl.innerHTML = '<div class="panel"><div class="empty-state compact">' + App.svg("fileText") + '<p>No work reports logged yet.</p></div></div>';
+        listEl.innerHTML = '<div class="panel"><div class="empty-state compact">' + App.svg("fileText") + '<p>' + (repFrom || repTo ? "No work reports in this date range." : "No work reports logged yet.") + '</p></div></div>';
         return;
       }
 
@@ -82,6 +124,44 @@
       Data.saveWorkReports(Data.getWorkReports().filter(function (r) { return r.id !== btn.getAttribute("data-del"); }));
       App.showToast("Report removed");
       renderReports();
+    });
+
+    document.getElementById("reportFilterForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      repFrom = document.getElementById("repFromInput").value;
+      repTo = document.getElementById("repToInput").value;
+      renderReports();
+    });
+
+    document.getElementById("reportFilterClear").addEventListener("click", function () {
+      document.getElementById("repFromInput").value = "";
+      document.getElementById("repToInput").value = "";
+      repFrom = ""; repTo = "";
+      renderReports();
+    });
+
+    var downloadModal = document.getElementById("downloadModal");
+    document.getElementById("downloadBtn").addEventListener("click", function () {
+      document.getElementById("dlFrom").value = repFrom;
+      document.getElementById("dlTo").value = repTo || Data.isoDate(Data.today());
+      document.getElementById("dlFormat").value = "pdf";
+      document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-format") === "pdf"); });
+      downloadModal.classList.add("show");
+    });
+    document.getElementById("dlFormatToggle").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-format]");
+      if (!btn) return;
+      document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.getElementById("dlFormat").value = btn.getAttribute("data-format");
+    });
+    document.getElementById("closeDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+    document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+    downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
+    document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
+      var format = document.getElementById("dlFormat").value.toUpperCase();
+      downloadModal.classList.remove("show");
+      App.showToast("Your " + format + " file is downloading...");
     });
 
     renderReports();
