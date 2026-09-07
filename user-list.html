@@ -27,10 +27,11 @@
       <div class="table-card">
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>User</th><th>Role</th><th>Contact</th><th>Assigned Projects</th><th>Monthly Salary</th><th></th></tr></thead>
+            <thead><tr id="tableHeadRow"></tr></thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="panel-footer-row" style="justify-content:flex-end" id="tablePager"></div>
       </div>
     </main>
   </div>
@@ -86,6 +87,23 @@
 
     var allProjects = Data.getProjects();
     var roleSelect = document.getElementById("fRole");
+    var sortState = { field: null, dir: "asc" };
+    var page = 1;
+    var PAGE_SIZE = 10;
+
+    document.getElementById("tableHeadRow").innerHTML =
+      App.sortableTh("User", "name", sortState) +
+      App.sortableTh("Role", "role", sortState) +
+      App.sortableTh("Contact", "phone", sortState) +
+      '<th>Assigned Projects</th>' +
+      App.sortableTh("Monthly Salary", "monthlySalary", sortState) +
+      '<th></th>';
+    App.wireSort(document.getElementById("tableHeadRow"), sortState, function () { page = 1; render(); });
+
+    function userAccessor(u, field) {
+      if (field === "role") return roleName(u.roleId);
+      return u[field];
+    }
 
     function refreshRoleOptions() {
       var roles = Data.getRoles();
@@ -103,7 +121,16 @@
 
     function render() {
       var users = Data.getUsers();
-      document.getElementById("tableBody").innerHTML = users.map(function (u) {
+      if (!users.length) {
+        document.getElementById("tableBody").innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("hardHat") + '<p>No users yet.</p></div></td></tr>';
+        document.getElementById("tablePager").innerHTML = "";
+        return;
+      }
+      users = App.sortRows(users, sortState, userAccessor);
+      var pg = App.paginate(users, page, PAGE_SIZE);
+      page = pg.page;
+
+      document.getElementById("tableBody").innerHTML = pg.pageItems.map(function (u) {
         var allProj = roleAllProjects(u.roleId);
         var assigned = (u.assignedProjectIds || []).map(function (pid) {
           var p = allProjects.find(function (x) { return x.id === pid; });
@@ -132,6 +159,8 @@
           '</td>' +
         '</tr>';
       }).join("");
+
+      App.renderPager(document.getElementById("tablePager"), page, pg.totalPages, function (newPage) { page = newPage; render(); });
     }
 
     var openMenuId = null;

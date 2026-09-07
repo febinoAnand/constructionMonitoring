@@ -75,12 +75,38 @@
       '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
       '<div class="panel full-panel">' +
         '<div class="panel-header"><h3>Current Stock Balance</h3></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Category</th><th>Balance</th><th>Reorder Threshold</th><th>Status</th></tr></thead><tbody id="balanceBody"></tbody></table></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr id="balanceHeadRow"></tr></thead><tbody id="balanceBody"></tbody></table></div>' +
       '</div>' +
       '<div class="panel full-panel">' +
         '<div class="panel-header"><h3>Transaction History</h3><span class="panel-tag" id="txnCount"></span></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Bill No.</th><th>Material</th><th>Type</th><th>Source</th><th>Quantity</th><th class="text-right">Amount</th><th>Supplier / Notes</th>' + (canDelete ? '<th></th>' : '') + '</tr></thead><tbody id="txnBody"></tbody><tfoot id="txnFoot"></tfoot></table></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr id="txnHeadRow"></tr></thead><tbody id="txnBody"></tbody><tfoot id="txnFoot"></tfoot></table></div>' +
+        '<div class="panel-footer-row" style="justify-content:flex-end" id="txnPager"></div>' +
       '</div>';
+
+    var balanceSortState = { field: null, dir: "asc" };
+    var txnSortState = { field: null, dir: "asc" };
+    var txnPage = 1;
+    var TXN_PAGE_SIZE = 10;
+
+    document.getElementById("balanceHeadRow").innerHTML =
+      App.sortableTh("Material", "name", balanceSortState) +
+      App.sortableTh("Category", "category", balanceSortState) +
+      App.sortableTh("Balance", "balance", balanceSortState) +
+      App.sortableTh("Reorder Threshold", "reorderThreshold", balanceSortState) +
+      '<th>Status</th>';
+    App.wireSort(document.getElementById("balanceHeadRow"), balanceSortState, function () { renderBalances(); });
+
+    document.getElementById("txnHeadRow").innerHTML =
+      App.sortableTh("Date", "date", txnSortState) +
+      '<th>Bill No.</th>' +
+      App.sortableTh("Material", "materialName", txnSortState) +
+      App.sortableTh("Type", "type", txnSortState) +
+      '<th>Source</th>' +
+      App.sortableTh("Quantity", "quantity", txnSortState) +
+      App.sortableTh("Amount", "totalAmount", txnSortState, "text-right") +
+      '<th>Supplier / Notes</th>' +
+      (canDelete ? '<th></th>' : '');
+    App.wireSort(document.getElementById("txnHeadRow"), txnSortState, function () { txnPage = 1; renderTxns(); });
 
     if (document.getElementById("sDate")) document.getElementById("sDate").value = Data.isoDate(Data.today());
 
@@ -109,8 +135,16 @@
         '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("truck") + '</div><div class="stat-value">₹' + Charts.fmtCompact(totalPurchased) + '</div><div class="stat-label">Total purchased</div></div>';
     }
 
+    function balanceAccessor(r, field) {
+      if (field === "name") return r.material.name;
+      if (field === "category") return r.material.category;
+      if (field === "balance") return r.balance;
+      if (field === "reorderThreshold") return r.material.reorderThreshold;
+      return r[field];
+    }
+
     function renderBalances() {
-      var rows = Business.getAllStockBalances(projectId);
+      var rows = App.sortRows(Business.getAllStockBalances(projectId), balanceSortState, balanceAccessor);
       document.getElementById("balanceBody").innerHTML = rows.map(function (r) {
         var statusHtml = !r.hasActivity
           ? '<span class="status-pill pending">No activity</span>'
@@ -125,20 +159,28 @@
       }).join("");
     }
 
+    function txnAccessor(t, field) {
+      if (field === "materialName") { var m = materials.find(function (x) { return x.id === t.materialId; }); return m ? m.name : ""; }
+      return t[field];
+    }
+
     function renderTxns() {
       var allTxns = Data.getStockTransactions().filter(function (t) { return t.projectId === projectId; });
-      var txns = allTxns.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 40);
-      document.getElementById("txnCount").textContent = txns.length + " shown";
+      var txns = App.sortRows(allTxns, txnSortState.field ? txnSortState : { field: "date", dir: "desc" }, txnAccessor);
+      document.getElementById("txnCount").textContent = txns.length + " entries";
       var body = document.getElementById("txnBody");
       var foot = document.getElementById("txnFoot");
       if (!txns.length) {
         body.innerHTML = '<tr><td colspan="9"><div class="empty-state compact">' + App.svg("truck") + '<p>No stock movements recorded yet.</p></div></td></tr>';
         foot.innerHTML = "";
+        document.getElementById("txnPager").innerHTML = "";
         return;
       }
       var billingTotal = allTxns.filter(function (t) { return t.type === "inward"; }).reduce(function (s, t) { return s + t.totalAmount; }, 0);
       foot.innerHTML = '<tr class="table-total-row"><td colspan="6">Total billing for ' + project.name + '</td><td class="total-amount text-right">₹' + billingTotal.toLocaleString("en-IN") + '</td><td colspan="' + (canDelete ? 2 : 1) + '"></td></tr>';
-      body.innerHTML = txns.map(function (t) {
+      var pg = App.paginate(txns, txnPage, TXN_PAGE_SIZE);
+      txnPage = pg.page;
+      body.innerHTML = pg.pageItems.map(function (t) {
         var mat = materials.find(function (m) { return m.id === t.materialId; });
         var typeChip = t.type === "inward" ? '<span class="chip chip-green">Inward</span>' : t.type === "outward" ? '<span class="chip chip-amber">Outward</span>' : '<span class="chip chip-slate">Adjustment</span>';
         var sourceHtml = "—";
@@ -165,6 +207,8 @@
           (canDelete ? '<td><button class="action-trigger" data-del="' + t.id + '">' + App.svg("trash") + '</button></td>' : '') +
         '</tr>';
       }).join("");
+
+      App.renderPager(document.getElementById("txnPager"), txnPage, pg.totalPages, function (newPage) { txnPage = newPage; renderTxns(); });
     }
 
     function renderAll() { renderStats(); renderBalances(); renderTxns(); }

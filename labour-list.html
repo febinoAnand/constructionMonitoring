@@ -37,11 +37,12 @@
         <div class="table-scroll">
           <table class="data-table">
             <thead>
-              <tr><th>Labourer</th><th>Skill</th><th>Daily Wage</th><th>Phone</th><th>Status</th><th></th></tr>
+              <tr id="tableHeadRow"></tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="panel-footer-row" style="justify-content:flex-end" id="tablePager"></div>
       </div>
     </main>
   </div>
@@ -91,9 +92,21 @@
   var canEdit = App.can("labour", "update");
   var canDelete = App.can("labour", "delete");
   var searchTerm = "";
+  var sortState = { field: null, dir: "asc" };
+  var page = 1;
+  var PAGE_SIZE = 10;
 
   var skillSelect = document.getElementById("fSkill");
   skillSelect.innerHTML = Data.SKILLS.map(function (s) { return '<option value="' + s + '">' + s + '</option>'; }).join("");
+
+  document.getElementById("tableHeadRow").innerHTML =
+    App.sortableTh("Labourer", "name", sortState) +
+    App.sortableTh("Skill", "skill", sortState) +
+    App.sortableTh("Daily Wage", "defaultDailyWage", sortState) +
+    App.sortableTh("Phone", "phone", sortState) +
+    App.sortableTh("Status", "isActive", sortState) +
+    '<th></th>';
+  App.wireSort(document.getElementById("tableHeadRow"), sortState, function () { page = 1; render(); });
 
   function renderStats() {
     var all = Data.getLabourers();
@@ -117,10 +130,15 @@
     var tbody = document.getElementById("tableBody");
     if (!all.length) {
       tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("people") + '<p>No labourers found.</p></div></td></tr>';
+      document.getElementById("tablePager").innerHTML = "";
       return;
     }
 
-    tbody.innerHTML = all.map(function (l) {
+    all = App.sortRows(all, sortState);
+    var pg = App.paginate(all, page, PAGE_SIZE);
+    page = pg.page;
+
+    tbody.innerHTML = pg.pageItems.map(function (l) {
       var owed = Business.getWageSummary(l.id).owed;
       return '<tr class="' + (l.isActive ? "" : "row-inactive") + '">' +
         '<td><a href="labourer-detail.html?id=' + l.id + '"><div class="cell-user"><div class="cell-avatar">' + l.name.charAt(0) + '</div><span class="cell-user-name">' + l.name + '</span></div></a></td>' +
@@ -140,9 +158,11 @@
         '</td>' +
       '</tr>';
     }).join("");
+
+    App.renderPager(document.getElementById("tablePager"), page, pg.totalPages, function (newPage) { page = newPage; render(); });
   }
 
-  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; render(); });
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; page = 1; render(); });
 
   var openMenuId = null;
   document.addEventListener("click", function (e) {

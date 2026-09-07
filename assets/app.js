@@ -453,6 +453,106 @@
     toastTimer = setTimeout(function () { el.classList.remove("show"); }, 2600);
   }
 
+  /* ============================================================
+     Reusable table sorting + numbered pagination.
+     Each page keeps its own { field, dir } sort state and page
+     number, then calls these helpers to sort/slice/render.
+     ============================================================ */
+
+  function sortRows(rows, sortState, accessor) {
+    if (!sortState || !sortState.field) return rows;
+    var field = sortState.field;
+    var mult = sortState.dir === "desc" ? -1 : 1;
+    return rows.slice().sort(function (a, b) {
+      var av = accessor ? accessor(a, field) : a[field];
+      var bv = accessor ? accessor(b, field) : b[field];
+      if (av === undefined || av === null) av = "";
+      if (bv === undefined || bv === null) bv = "";
+      if (typeof av === "string") av = av.toLowerCase();
+      if (typeof bv === "string") bv = bv.toLowerCase();
+      if (av < bv) return -1 * mult;
+      if (av > bv) return 1 * mult;
+      return 0;
+    });
+  }
+
+  function sortableTh(label, field, sortState, extraClass) {
+    var isActive = sortState && sortState.field === field;
+    var arrow = isActive ? (sortState.dir === "asc" ? "&#9650;" : "&#9660;") : "&#8645;";
+    return '<th class="sortable-th' + (extraClass ? " " + extraClass : "") + '" data-sort-field="' + field + '">' +
+      '<span class="sortable-th-inner">' + label + '<span class="sort-arrow' + (isActive ? " active" : "") + '">' + arrow + '</span></span>' +
+    '</th>';
+  }
+
+  function refreshSortArrows(container, sortState) {
+    container.querySelectorAll("[data-sort-field]").forEach(function (th) {
+      var field = th.getAttribute("data-sort-field");
+      var isActive = sortState.field === field;
+      var arrowEl = th.querySelector(".sort-arrow");
+      if (!arrowEl) return;
+      arrowEl.classList.toggle("active", isActive);
+      arrowEl.innerHTML = isActive ? (sortState.dir === "asc" ? "&#9650;" : "&#9660;") : "&#8645;";
+    });
+  }
+
+  function wireSort(theadEl, sortState, onChange) {
+    theadEl.addEventListener("click", function (e) {
+      var th = e.target.closest("[data-sort-field]");
+      if (!th) return;
+      var field = th.getAttribute("data-sort-field");
+      if (sortState.field === field) {
+        sortState.dir = sortState.dir === "asc" ? "desc" : "asc";
+      } else {
+        sortState.field = field;
+        sortState.dir = "asc";
+      }
+      refreshSortArrows(theadEl, sortState);
+      onChange();
+    });
+  }
+
+  function renderPager(container, page, totalPages, onChange) {
+    totalPages = Math.max(1, totalPages);
+    page = Math.min(Math.max(1, page), totalPages);
+    if (totalPages <= 1) { container.innerHTML = ""; return; }
+
+    var maxShown = 5;
+    var start = Math.max(1, page - 2);
+    var end = Math.min(totalPages, start + maxShown - 1);
+    start = Math.max(1, end - maxShown + 1);
+
+    var html = '<div class="pager">';
+    html += '<button class="pager-btn pager-nav" data-pg="prev" ' + (page <= 1 ? "disabled" : "") + '>&lsaquo;</button>';
+    if (start > 1) {
+      html += '<button class="pager-btn" data-pg="1">1</button>';
+      if (start > 2) html += '<span class="pager-ellipsis">&hellip;</span>';
+    }
+    for (var i = start; i <= end; i++) {
+      html += '<button class="pager-btn' + (i === page ? " active" : "") + '" data-pg="' + i + '">' + i + '</button>';
+    }
+    if (end < totalPages) {
+      if (end < totalPages - 1) html += '<span class="pager-ellipsis">&hellip;</span>';
+      html += '<button class="pager-btn" data-pg="' + totalPages + '">' + totalPages + '</button>';
+    }
+    html += '<button class="pager-btn pager-nav" data-pg="next" ' + (page >= totalPages ? "disabled" : "") + '>&rsaquo;</button>';
+    html += '</div>';
+    container.innerHTML = html;
+
+    container.querySelectorAll("[data-pg]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var v = btn.getAttribute("data-pg");
+        var newPage = v === "prev" ? page - 1 : v === "next" ? page + 1 : Number(v);
+        onChange(newPage);
+      });
+    });
+  }
+
+  function paginate(rows, page, pageSize) {
+    var totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    page = Math.min(Math.max(1, page), totalPages);
+    return { page: page, totalPages: totalPages, pageItems: rows.slice((page - 1) * pageSize, page * pageSize) };
+  }
+
   window.App = {
     isLoggedIn: isLoggedIn,
     requireAuth: requireAuth,
@@ -477,6 +577,12 @@
     renderShell: renderShell,
     svg: svg,
     icons: ICONS,
-    projectTabsHtml: projectTabsHtml
+    projectTabsHtml: projectTabsHtml,
+    sortRows: sortRows,
+    sortableTh: sortableTh,
+    wireSort: wireSort,
+    refreshSortArrows: refreshSortArrows,
+    renderPager: renderPager,
+    paginate: paginate
   };
 })();

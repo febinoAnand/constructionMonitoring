@@ -26,6 +26,31 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="completeTaskModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Complete Task</h3><p>Capture a few closing details before marking this task done.</p></div>
+      <button class="modal-close" id="closeCompleteTaskModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="completeTaskForm">
+        <div class="field-grid">
+          <div class="field"><label>Area (sqft)</label><input type="number" id="ctSqft" min="0"></div>
+          <div class="field"><label>Cost (₹)</label><input type="number" id="ctCost" min="0"></div>
+          <div class="field"><label>No. of Persons</label><input type="number" id="ctPersons" min="0"></div>
+          <div class="field"><label>Person in Charge</label><input type="text" id="ctInCharge"></div>
+          <div class="field"><label>Duration (days)</label><input type="number" id="ctDuration" min="0"></div>
+          <div class="field full"><label>Material Used</label><input type="text" id="ctMaterial" placeholder="e.g. Cement, Sand, Bricks"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelCompleteTaskModal">Cancel</button>
+      <button class="btn btn-primary" id="saveCompleteTaskBtn">Mark Complete</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="editTaskTableModal">
   <div class="modal-box">
     <div class="modal-header">
@@ -39,6 +64,7 @@
           <div class="field full"><label>Title</label><input type="text" id="ettTitle"></div>
           <div class="field full"><label>Assignee</label><input type="text" id="ettAssignee"></div>
           <div class="field"><label>Date</label><input type="date" id="ettDate"></div>
+          <div class="field"><label>Completed Date</label><input type="date" id="ettCompletedAt"></div>
           <div class="field full"><label>Notes</label><textarea id="ettNotes" rows="4"></textarea></div>
         </div>
       </form>
@@ -46,6 +72,26 @@
     <div class="modal-footer">
       <button class="btn btn-outline" id="cancelEditTaskTableModal">Cancel</button>
       <button class="btn btn-primary" id="saveEditTaskTableBtn">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="subtasksModal">
+  <div class="modal-box" style="max-width:560px">
+    <div class="modal-header">
+      <div><h3 id="subtasksModalTitle">Subtasks</h3><p>Break this task into smaller steps and track completion.</p></div>
+      <button class="modal-close" id="closeSubtasksModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="subtasksModalProgress" style="margin-bottom:16px"></div>
+      <div class="checklist-box subtask-list" id="subtasksModalList"></div>
+      <div class="subtask-add-row" id="subtasksModalAddRow">
+        <input type="text" id="subtasksModalInput" placeholder="Add a subtask, then press Enter">
+        <button type="button" class="btn btn-outline" id="subtasksModalAddBtn">+ Add</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="doneSubtasksModal">Close</button>
     </div>
   </div>
 </div>
@@ -70,7 +116,7 @@
     var canCreate = App.can("progress", "create");
     var canUpdate = App.can("progress", "update");
     var canDelete = App.can("progress", "delete");
-    var activeView = "board";
+    var activeView = "table";
 
     function fieldDefs() {
       return Data.getTaskFieldDefs().filter(function (f) { return f.projectId === projectId; });
@@ -82,16 +128,31 @@
 
     document.getElementById("pageBody").innerHTML =
       '<div class="view-toggle" id="viewToggle">' +
-        '<button class="view-toggle-btn" data-view="board">' + App.svg("columns") + ' Board</button>' +
         '<button class="view-toggle-btn" data-view="table">' + App.svg("fileText") + ' Table</button>' +
+        '<button class="view-toggle-btn" data-view="board">' + App.svg("columns") + ' Board</button>' +
       '</div>' +
-      '<div id="boardView"><div class="kanban-board" id="kanbanBoard"></div></div>' +
-      '<div id="tableView" style="display:none">' +
+      '<div id="boardView" style="display:none"><div class="kanban-board" id="kanbanBoard"></div></div>' +
+      '<div id="tableView">' +
         '<div class="panel full-panel">' +
           '<div class="panel-header"><h3>All Tasks — Status Overview</h3><span class="panel-tag" id="taskCount"></span></div>' +
+          (canCreate ?
+          '<div style="padding:0 20px 14px">' +
+            '<div class="kanban-quick-add" id="tableQuickAdd" style="max-width:320px;margin-bottom:0">' +
+              '<button class="kanban-quick-add-btn" id="tableQuickAddOpen">' + App.svg("plus") + ' Add task</button>' +
+              '<div class="kanban-quick-add-form" id="tableQuickAddForm" style="display:none">' +
+                '<input type="text" placeholder="Task title, then Enter" id="tableQuickAddInput">' +
+              '</div>' +
+            '</div>' +
+          '</div>' : '') +
           '<div class="table-scroll"><table class="data-table"><thead><tr id="taskTableHead"></tr></thead><tbody id="taskTableBody"></tbody></table></div>' +
+          '<div class="panel-footer-row" style="justify-content:flex-end" id="taskTablePager"></div>' +
         '</div>' +
       '</div>';
+
+    var taskSortState = { field: null, dir: "asc" };
+    var taskPage = 1;
+    var TASK_PAGE_SIZE = 10;
+    App.wireSort(document.getElementById("taskTableHead"), taskSortState, function () { taskPage = 1; renderTable(); });
 
     function statusPillClass(s) { return s === "done" ? "delivered" : s === "todo" ? "pending" : "confirmed"; }
 
@@ -104,6 +165,13 @@
         return '<span class="kanban-card-field-chip">' + f.label + ": " + v + '</span>';
       }).join("");
       return chips ? '<div class="kanban-card-fields">' + chips + '</div>' : "";
+    }
+
+    function progressColor(percent) {
+      return percent >= 80 ? "#16a34a" : percent >= 40 ? "#f59e0b" : "#ea580c";
+    }
+    function miniProgressHtml(percent) {
+      return '<div class="progress-bar-mini"><div class="progress-bar-track"><div class="progress-bar-fill" style="width:' + percent + '%;background:' + progressColor(percent) + '"></div></div><span>' + Math.round(percent) + '%</span></div>';
     }
 
     function renderKanban() {
@@ -124,8 +192,8 @@
         var delBtn = (!col.builtin && canUpdate) ? '<button type="button" class="col-del-btn" data-del-status="' + col.id + '" title="Remove this column">' + App.svg("trash") + '</button>' : "";
         return '<div class="kanban-column ' + statusColClass(col) + '" data-status-col="' + col.key + '">' +
           '<div class="kanban-column-header"><span>' + col.label + '</span><span class="kanban-count">' + colTasks.length + '</span>' + delBtn + '</div>' +
-          (cardsHtml || '<div class="kanban-empty">No tasks here</div>') +
           quickAdd +
+          (cardsHtml || '<div class="kanban-empty">No tasks here</div>') +
         '</div>';
       }).join("");
 
@@ -157,9 +225,19 @@
         if (canDelete) actions += '<button class="kanban-move-btn del" data-del="' + t.id + '">' + App.svg("trash") + '</button>';
         actions += '</div>';
       }
+      var progress = Business.getTaskProgress(t);
+      var timelineHtml = '<div class="kanban-card-timeline">' +
+        '<span>Created ' + (t.createdAt ? Data.displayDate(t.createdAt) : "—") + '</span>' +
+        (t.completedAt ? '<span class="dot-sep">·</span><span>Completed ' + Data.displayDate(t.completedAt) + '</span>' : '') +
+      '</div>';
       return '<div class="kanban-card" draggable="' + (canUpdate ? "true" : "false") + '" data-task-id="' + t.id + '" data-open-task="' + t.id + '">' +
-        '<div class="kanban-card-title">' + t.title + '</div>' +
+        '<div class="kanban-card-title-row">' +
+          '<div class="kanban-card-title">' + t.title + '</div>' +
+          '<span class="status-pill ' + statusPillClass(t.status) + '">' + statusMeta(t.status).label + '</span>' +
+        '</div>' +
         '<div class="kanban-card-meta"><span class="kanban-card-assignee">' + App.svg("people") + ' ' + (t.assignee || "Unassigned") + '</span><span>' + Data.displayDate(t.date) + '</span></div>' +
+        timelineHtml +
+        (progress.totalCount > 0 ? '<div style="margin-top:8px">' + miniProgressHtml(progress.percent) + '</div>' : "") +
         fieldChipsHtml(t) +
         actions +
       '</div>';
@@ -195,33 +273,50 @@
     function renderTable() {
       var defs = fieldDefs();
       var head = document.getElementById("taskTableHead");
-      var showActions = canUpdate || canDelete;
-      head.innerHTML = '<th>Task</th><th>Assignee</th><th>Date</th><th>Status</th><th>Completed</th>' +
+      head.innerHTML =
+        App.sortableTh("Task", "title", taskSortState) +
+        App.sortableTh("Assignee", "assignee", taskSortState) +
+        App.sortableTh("Date", "date", taskSortState) +
+        App.sortableTh("Status", "status", taskSortState) +
+        '<th>Progress</th>' +
+        App.sortableTh("Created", "createdAt", taskSortState) +
+        App.sortableTh("Completed", "completedAt", taskSortState) +
         defs.map(function (f) { return '<th>' + f.label + '</th>'; }).join("") +
-        (showActions ? '<th></th>' : '');
+        '<th></th>';
 
-      var tasks = Data.getTasks().filter(function (t) { return t.projectId === projectId; })
-        .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      var tasks = App.sortRows(
+        Data.getTasks().filter(function (t) { return t.projectId === projectId; }),
+        taskSortState.field ? taskSortState : { field: "date", dir: "desc" }
+      );
       document.getElementById("taskCount").textContent = tasks.length + " task(s)";
       var body = document.getElementById("taskTableBody");
       if (!tasks.length) {
-        body.innerHTML = '<tr><td colspan="' + (6 + defs.length) + '"><div class="empty-state compact">' + App.svg("columns") + '<p>No tasks yet.</p></div></td></tr>';
+        body.innerHTML = '<tr><td colspan="' + (8 + defs.length) + '"><div class="empty-state compact">' + App.svg("columns") + '<p>No tasks yet.</p></div></td></tr>';
+        document.getElementById("taskTablePager").innerHTML = "";
         return;
       }
-      body.innerHTML = tasks.map(function (t) {
+      var pg = App.paginate(tasks, taskPage, TASK_PAGE_SIZE);
+      taskPage = pg.page;
+      body.innerHTML = pg.pageItems.map(function (t) {
+        var progress = Business.getTaskProgress(t);
         return '<tr>' +
           '<td><a href="project-task-detail.html?id=' + projectId + '&task=' + t.id + '"><strong>' + t.title + '</strong></a></td>' +
           '<td>' + (t.assignee || "—") + '</td>' +
           '<td>' + Data.displayDate(t.date) + '</td>' +
           '<td><span class="status-pill ' + statusPillClass(t.status) + '">' + statusMeta(t.status).label + '</span></td>' +
+          '<td style="min-width:110px">' + miniProgressHtml(progress.percent) + '</td>' +
+          '<td>' + (t.createdAt ? Data.displayDate(t.createdAt) : '<span class="desc-cell">—</span>') + '</td>' +
           '<td>' + (t.completedAt ? Data.displayDate(t.completedAt) : '<span class="desc-cell">—</span>') + '</td>' +
           defs.map(function (f) { var v = t.customFields && t.customFields[f.key]; return '<td>' + (v === undefined || v === null || v === "" ? "—" : v) + '</td>'; }).join("") +
-          (showActions ? '<td><div class="action-buttons-row">' +
+          '<td><div class="action-buttons-row">' +
+            '<button class="action-trigger" data-subtasks="' + t.id + '" title="Subtasks">' + App.svg("check") + '</button>' +
             (canUpdate ? '<button class="action-trigger" data-edit-task="' + t.id + '">' + App.svg("edit") + '</button>' : "") +
             (canDelete ? '<button class="action-trigger" data-del="' + t.id + '">' + App.svg("trash") + '</button>' : "") +
-          '</div></td>' : '') +
+          '</div></td>' +
         '</tr>';
       }).join("");
+
+      App.renderPager(document.getElementById("taskTablePager"), taskPage, pg.totalPages, function (newPage) { taskPage = newPage; renderTable(); });
     }
 
     function wireAddColumn() {
@@ -283,7 +378,7 @@
       var btn = e.target.closest("[data-view]");
       if (btn) setView(btn.getAttribute("data-view"));
     });
-    setView("board");
+    setView("table");
 
     /* Auto-generate (or refresh) a work report the moment a task lands in Done —
        so daily reports reflect completed work without a separate manual entry. */
@@ -305,16 +400,43 @@
       Data.saveWorkReports(reports);
     }
 
+    /* Auto-fills the Expenses tab with the material cost captured on task completion,
+       so the cost of materials used doesn't need a separate manual expense entry. */
+    function syncCompletionExpense(task) {
+      var expenses = Data.getExpenses();
+      var existing = expenses.find(function (e) { return e.taskId === task.id && e.category === "task_completion"; });
+      var cost = task.completionCost || 0;
+      if (cost <= 0) {
+        if (existing) Data.saveExpenses(expenses.filter(function (e) { return e.id !== existing.id; }));
+        return;
+      }
+      var desc = "Task completed: " + task.title + (task.materialUsed ? " — Materials: " + task.materialUsed : "");
+      if (existing) {
+        existing.amount = cost;
+        existing.description = desc;
+        existing.date = task.completedAt || Data.isoDate(Data.today());
+      } else {
+        expenses.push({
+          id: Data.uid("ex"), projectId: projectId, category: "task_completion",
+          amount: cost, date: task.completedAt || Data.isoDate(Data.today()),
+          description: desc, taskId: task.id
+        });
+      }
+      Data.saveExpenses(expenses);
+    }
+
     function moveTaskTo(taskId, newStatus) {
       var tasks = Data.getTasks();
       var task = tasks.find(function (t) { return t.id === taskId; });
       if (!task || task.status === newStatus) return;
+      if (newStatus === "done" && task.status !== "done") {
+        openCompleteTaskModal(taskId);
+        return;
+      }
       var oldStatus = task.status;
       task.status = newStatus;
-      if (newStatus === "done" && !task.completedAt) task.completedAt = Data.isoDate(Data.today());
       Data.saveTasks(tasks);
       Data.addTaskActivity(taskId, "Status changed from " + statusMeta(oldStatus).label + " to " + statusMeta(newStatus).label);
-      if (newStatus === "done") syncCompletionReport(task);
       renderAll();
     }
 
@@ -341,6 +463,8 @@
       if (open) { window.location.href = "project-task-detail.html?id=" + projectId + "&task=" + open.getAttribute("data-open-task"); return; }
       var editTask = e.target.closest("[data-edit-task]");
       if (editTask) { openEditTaskTableModal(editTask.getAttribute("data-edit-task")); return; }
+      var subtasksBtn = e.target.closest("[data-subtasks]");
+      if (subtasksBtn) { openSubtasksModal(subtasksBtn.getAttribute("data-subtasks")); return; }
     });
 
     var editTaskTableModal = document.getElementById("editTaskTableModal");
@@ -351,6 +475,7 @@
       document.getElementById("ettTitle").value = t.title;
       document.getElementById("ettAssignee").value = t.assignee || "";
       document.getElementById("ettDate").value = t.date || "";
+      document.getElementById("ettCompletedAt").value = t.completedAt || "";
       document.getElementById("ettNotes").value = t.notes || "";
       editTaskTableModal.classList.add("show");
     }
@@ -363,14 +488,235 @@
       var tasks = Data.getTasks();
       var t = tasks.find(function (x) { return x.id === id; });
       if (!t) return;
+      var newCompletedAt = document.getElementById("ettCompletedAt").value || null;
+      var triggersCompletion = newCompletedAt && t.status !== "done";
+
       t.title = document.getElementById("ettTitle").value.trim() || t.title;
       t.assignee = document.getElementById("ettAssignee").value.trim();
       t.date = document.getElementById("ettDate").value;
       t.notes = document.getElementById("ettNotes").value.trim();
+      if (!triggersCompletion) t.completedAt = newCompletedAt;
       Data.saveTasks(tasks);
       Data.addTaskActivity(id, "Task details edited");
       App.showToast("Task updated");
       closeEditTaskTableModal();
+      renderAll();
+
+      if (triggersCompletion) openCompleteTaskModal(id, newCompletedAt);
+    });
+
+    var subtasksModal = document.getElementById("subtasksModal");
+    var currentSubtasksTaskId = null;
+    function getCurrentSubtaskTask() {
+      return Data.getTasks().find(function (t) { return t.id === currentSubtasksTaskId; });
+    }
+    function openSubtasksModal(taskId) {
+      currentSubtasksTaskId = taskId;
+      document.getElementById("subtasksModalAddRow").style.display = canUpdate ? "" : "none";
+      renderSubtasksModalProgress();
+      renderSubtasksModalList();
+      subtasksModal.classList.add("show");
+    }
+    function closeSubtasksModal() { subtasksModal.classList.remove("show"); currentSubtasksTaskId = null; }
+    document.getElementById("closeSubtasksModal").addEventListener("click", closeSubtasksModal);
+    document.getElementById("doneSubtasksModal").addEventListener("click", closeSubtasksModal);
+    subtasksModal.addEventListener("click", function (e) { if (e.target === subtasksModal) closeSubtasksModal(); });
+
+    function renderSubtasksModalProgress() {
+      var task = getCurrentSubtaskTask();
+      if (!task) return;
+      document.getElementById("subtasksModalTitle").textContent = "Subtasks — " + task.title;
+      var prog = Business.getTaskProgress(task);
+      Charts.renderProgressBar(document.getElementById("subtasksModalProgress"), prog.percent, {
+        metaText: prog.totalCount > 0 ? (prog.doneCount + " of " + prog.totalCount + " subtasks done") : "No subtasks yet — based on task status"
+      });
+    }
+
+    function renderSubtasksModalList() {
+      var task = getCurrentSubtaskTask();
+      var listEl = document.getElementById("subtasksModalList");
+      if (!task) { listEl.innerHTML = ""; return; }
+      var subtasks = task.subtasks || [];
+      if (!subtasks.length) {
+        listEl.innerHTML = '<div class="empty-state compact" style="padding:14px 8px"><p>No subtasks yet. Break this task down into smaller steps below.</p></div>';
+        return;
+      }
+      listEl.innerHTML = subtasks.map(function (s) {
+        return '<div class="subtask-row">' +
+          '<input type="checkbox" data-subtask-toggle="' + s.id + '"' + (s.done ? ' checked' : '') + (canUpdate ? '' : ' disabled') + '>' +
+          '<span class="subtask-title' + (s.done ? ' done' : '') + '">' + s.title + '</span>' +
+          (canUpdate ? '<button type="button" class="action-trigger" data-subtask-edit="' + s.id + '" title="Edit subtask">' + App.svg("edit") + '</button>' : '') +
+          (canUpdate ? '<button type="button" class="action-trigger" data-subtask-del="' + s.id + '" title="Remove subtask">' + App.svg("trash") + '</button>' : '') +
+        '</div>';
+      }).join("");
+    }
+
+    function editSubtasksModalInline(btn) {
+      var id = btn.getAttribute("data-subtask-edit");
+      var row = btn.closest(".subtask-row");
+      var titleSpan = row.querySelector(".subtask-title");
+      var currentTitle = titleSpan.textContent;
+      var input = document.createElement("input");
+      input.type = "text";
+      input.className = "subtask-edit-input";
+      input.value = currentTitle;
+      titleSpan.replaceWith(input);
+      input.focus();
+      input.select();
+
+      var committed = false;
+      function commit() {
+        if (committed) return;
+        committed = true;
+        var newTitle = input.value.trim();
+        if (newTitle && newTitle !== currentTitle && currentSubtasksTaskId) {
+          var tasks = Data.getTasks();
+          var t = tasks.find(function (x) { return x.id === currentSubtasksTaskId; });
+          if (t) {
+            t.subtasks = (t.subtasks || []).map(function (s) { return s.id === id ? Object.assign({}, s, { title: newTitle }) : s; });
+            Data.saveTasks(tasks);
+            Data.addTaskActivity(t.id, 'Subtask renamed: "' + currentTitle + '" → "' + newTitle + '"');
+            renderAll();
+          }
+        }
+        renderSubtasksModalList();
+      }
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); commit(); }
+        else if (e.key === "Escape") { e.preventDefault(); committed = true; renderSubtasksModalList(); }
+      });
+      input.addEventListener("blur", commit);
+    }
+
+    document.getElementById("subtasksModalList").addEventListener("change", function (e) {
+      var cb = e.target.closest("[data-subtask-toggle]");
+      if (!cb || !currentSubtasksTaskId) return;
+      var tasks = Data.getTasks();
+      var t = tasks.find(function (x) { return x.id === currentSubtasksTaskId; });
+      if (!t) return;
+      var id = cb.getAttribute("data-subtask-toggle");
+      t.subtasks = (t.subtasks || []).map(function (s) { return s.id === id ? Object.assign({}, s, { done: cb.checked }) : s; });
+      Data.saveTasks(tasks);
+      var st = t.subtasks.find(function (s) { return s.id === id; });
+      Data.addTaskActivity(t.id, (st.done ? "Subtask completed: " : "Subtask reopened: ") + st.title);
+      renderSubtasksModalProgress();
+      renderSubtasksModalList();
+      renderAll();
+      var allDone = t.subtasks.length > 0 && t.subtasks.every(function (s) { return s.done; });
+      if (allDone && t.status !== "done") {
+        var taskIdForCompletion = t.id;
+        closeSubtasksModal();
+        openCompleteTaskModal(taskIdForCompletion);
+      }
+    });
+    document.getElementById("subtasksModalList").addEventListener("click", function (e) {
+      var editBtn = e.target.closest("[data-subtask-edit]");
+      if (editBtn) { editSubtasksModalInline(editBtn); return; }
+      var btn = e.target.closest("[data-subtask-del]");
+      if (!btn || !currentSubtasksTaskId) return;
+      var tasks = Data.getTasks();
+      var t = tasks.find(function (x) { return x.id === currentSubtasksTaskId; });
+      if (!t) return;
+      var id = btn.getAttribute("data-subtask-del");
+      var removed = (t.subtasks || []).find(function (s) { return s.id === id; });
+      t.subtasks = (t.subtasks || []).filter(function (s) { return s.id !== id; });
+      Data.saveTasks(tasks);
+      if (removed) Data.addTaskActivity(t.id, "Subtask removed: " + removed.title);
+      renderSubtasksModalProgress();
+      renderSubtasksModalList();
+      renderAll();
+    });
+
+    function addSubtaskFromModalInput() {
+      var input = document.getElementById("subtasksModalInput");
+      var title = input.value.trim();
+      if (!title || !currentSubtasksTaskId) return;
+      var tasks = Data.getTasks();
+      var t = tasks.find(function (x) { return x.id === currentSubtasksTaskId; });
+      if (!t) return;
+      t.subtasks = (t.subtasks || []).concat([{ id: Data.uid("st"), title: title, done: false }]);
+      Data.saveTasks(tasks);
+      Data.addTaskActivity(t.id, "Subtask added: " + title);
+      input.value = "";
+      input.focus();
+      renderSubtasksModalProgress();
+      renderSubtasksModalList();
+      renderAll();
+    }
+    document.getElementById("subtasksModalAddBtn").addEventListener("click", addSubtaskFromModalInput);
+    document.getElementById("subtasksModalInput").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); addSubtaskFromModalInput(); }
+    });
+
+    var tableQuickAddOpen = document.getElementById("tableQuickAddOpen");
+    var tableQuickAddForm = document.getElementById("tableQuickAddForm");
+    var tableQuickAddInput = document.getElementById("tableQuickAddInput");
+    if (tableQuickAddOpen) tableQuickAddOpen.addEventListener("click", function () {
+      tableQuickAddOpen.style.display = "none";
+      tableQuickAddForm.style.display = "";
+      tableQuickAddInput.focus();
+    });
+    if (tableQuickAddInput) {
+      tableQuickAddInput.addEventListener("keydown", function (e) {
+        if (e.key !== "Enter") return;
+        var title = tableQuickAddInput.value.trim();
+        if (!title) return;
+        var newTaskId = Data.uid("tk");
+        var tasks = Data.getTasks();
+        var me = App.getCurrentUser();
+        tasks.push({
+          id: newTaskId, projectId: projectId, title: title,
+          assignee: "", status: "todo", date: Data.isoDate(Data.today()), notes: "", customFields: {}, subtasks: [],
+          createdAt: Data.isoDate(Data.today()), createdBy: me ? me.id : null,
+          completedAt: null, sqft: null, completionCost: null, personsCount: null, personInCharge: "", durationDays: null, materialUsed: ""
+        });
+        Data.saveTasks(tasks);
+        Data.addTaskActivity(newTaskId, "Task created");
+        tableQuickAddInput.value = "";
+        renderAll();
+      });
+      tableQuickAddInput.addEventListener("focusout", function () {
+        setTimeout(function () {
+          if (!tableQuickAddInput.value.trim()) {
+            tableQuickAddForm.style.display = "none";
+            tableQuickAddOpen.style.display = "";
+          }
+        }, 150);
+      });
+    }
+
+    var completeTaskModal = document.getElementById("completeTaskModal");
+    var pendingCompleteTaskId = null;
+    var pendingCompleteTaskDate = null;
+    function openCompleteTaskModal(taskId, presetDate) {
+      pendingCompleteTaskId = taskId;
+      pendingCompleteTaskDate = presetDate || null;
+      document.getElementById("completeTaskForm").reset();
+      completeTaskModal.classList.add("show");
+    }
+    function closeCompleteTaskModal() { completeTaskModal.classList.remove("show"); pendingCompleteTaskId = null; pendingCompleteTaskDate = null; }
+    document.getElementById("closeCompleteTaskModal").addEventListener("click", closeCompleteTaskModal);
+    document.getElementById("cancelCompleteTaskModal").addEventListener("click", closeCompleteTaskModal);
+    completeTaskModal.addEventListener("click", function (e) { if (e.target === completeTaskModal) closeCompleteTaskModal(); });
+    document.getElementById("saveCompleteTaskBtn").addEventListener("click", function () {
+      if (!pendingCompleteTaskId) return;
+      var tasks = Data.getTasks();
+      var task = tasks.find(function (t) { return t.id === pendingCompleteTaskId; });
+      if (!task) { closeCompleteTaskModal(); return; }
+      task.status = "done";
+      task.completedAt = pendingCompleteTaskDate || Data.isoDate(Data.today());
+      task.sqft = Number(document.getElementById("ctSqft").value) || 0;
+      task.completionCost = Number(document.getElementById("ctCost").value) || 0;
+      task.personsCount = Number(document.getElementById("ctPersons").value) || 0;
+      task.personInCharge = document.getElementById("ctInCharge").value.trim();
+      task.durationDays = Number(document.getElementById("ctDuration").value) || 0;
+      task.materialUsed = document.getElementById("ctMaterial").value.trim();
+      Data.saveTasks(tasks);
+      Data.addTaskActivity(pendingCompleteTaskId, "Task marked complete");
+      syncCompletionReport(task);
+      syncCompletionExpense(task);
+      App.showToast("Task marked complete");
+      closeCompleteTaskModal();
       renderAll();
     });
 
@@ -385,7 +731,7 @@
       var me = App.getCurrentUser();
       tasks.push({
         id: newTaskId, projectId: projectId, title: title,
-        assignee: "", status: statusKey, date: Data.isoDate(Data.today()), notes: "", customFields: {},
+        assignee: "", status: statusKey, date: Data.isoDate(Data.today()), notes: "", customFields: {}, subtasks: [],
         createdAt: Data.isoDate(Data.today()), createdBy: me ? me.id : null,
         completedAt: null, sqft: null, completionCost: null, personsCount: null, personInCharge: "", durationDays: null, materialUsed: ""
       });

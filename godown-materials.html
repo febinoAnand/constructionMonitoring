@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manage Materials</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+
+    <main class="content">
+      <div class="page-header-row">
+        <div>
+          <h2>Manage Materials</h2>
+          <p>Material masters — name, category and unit. Stock levels and bills are tracked on the <a href="godown.html">Godown</a> page.</p>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <a class="btn btn-outline" href="godown.html">&larr; Back to Godown</a>
+          <button class="btn btn-primary" id="addBtn" data-require="stock:create">+ Add Material</button>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="searchInput" placeholder="Search materials...">
+          </div>
+          <span class="toolbar-meta" id="toolbarMeta"></span>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr id="tableHeadRow"></tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+        <div class="panel-footer-row" style="justify-content:flex-end" id="tablePager"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="matModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3 id="modalTitle">Add Material</h3><p>Material masters only — stock is managed via the Godown page and each project's Stock tab.</p></div>
+      <button class="modal-close" id="closeModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="matForm">
+        <input type="hidden" id="editId">
+        <div class="field-grid">
+          <div class="field full"><label>Material Name <span class="req">*</span></label><input type="text" id="fName" required></div>
+          <div class="field"><label>Category</label><input type="text" id="fCategory" placeholder="e.g. Steel, Cement"></div>
+          <div class="field"><label>Unit <span class="req">*</span></label><input type="text" id="fUnit" placeholder="e.g. bag, ton, cft" required></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelModal">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save Material</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="billingModal">
+  <div class="modal-box" style="max-width:960px">
+    <div class="modal-header">
+      <div><h3 id="billingTitle">Purchase History</h3><p>Every purchase of this material, across the godown and every project — when, where from, and at what rate.</p></div>
+      <button class="modal-close" id="closeBillingModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="stat-grid stat-grid-tight" id="billingStatGrid" style="margin-bottom:16px"></div>
+      <div class="table-scroll"><table class="data-table"><thead><tr><th>Bill No.</th><th>Date</th><th>Location</th><th>Source</th><th>Quantity</th><th>Rate</th><th>GST</th><th class="text-right">Amount</th></tr></thead><tbody id="billingBody"></tbody></table></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="doneBillingModal">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="billDetailModal">
+  <div class="modal-box" style="max-width:760px">
+    <div class="modal-header">
+      <div><h3 id="billDetailTitle">Bill Details</h3><p>Every material recorded under this bill.</p></div>
+      <button class="modal-close" id="closeBillDetailModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="view-detail-grid" id="billDetailMeta" style="margin-bottom:16px"></div>
+      <div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Quantity</th><th>Rate</th><th>GST</th><th class="text-right">Amount</th></tr></thead><tbody id="billDetailBody"></tbody><tfoot id="billDetailFoot"></tfoot></table></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="doneBillDetailModal">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/business.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/charts.js"></script>
+<script>
+  App.requireAuth();
+  App.renderShell({ active: "materials", title: "Manage Materials", subtitle: "Material masters" });
+  App.guardPermission("stock", "read");
+  var canEdit = App.can("stock", "update");
+  var canDelete = App.can("stock", "delete");
+  var canCreate = App.can("stock", "create");
+  var searchTerm = "";
+  var GODOWN_ID = Data.GODOWN_ID;
+  var sortState = { field: null, dir: "asc" };
+  var page = 1;
+  var PAGE_SIZE = 10;
+
+  document.getElementById("tableHeadRow").innerHTML =
+    App.sortableTh("Material", "name", sortState) +
+    App.sortableTh("Category", "category", sortState) +
+    App.sortableTh("Unit", "unit", sortState) +
+    '<th>Godown Stock</th><th></th>';
+  App.wireSort(document.getElementById("tableHeadRow"), sortState, function () { page = 1; render(); });
+
+  function render() {
+    var all = Data.getMaterials().filter(function (m) {
+      var t = searchTerm.toLowerCase();
+      return !t || m.name.toLowerCase().indexOf(t) !== -1 || (m.category || "").toLowerCase().indexOf(t) !== -1;
+    });
+    document.getElementById("toolbarMeta").textContent = all.length + " material(s)";
+
+    var tbody = document.getElementById("tableBody");
+    if (!all.length) {
+      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("box") + '<p>No materials found.</p></div></td></tr>';
+      document.getElementById("tablePager").innerHTML = "";
+      return;
+    }
+
+    all = App.sortRows(all, sortState);
+    var pg = App.paginate(all, page, PAGE_SIZE);
+    page = pg.page;
+
+    tbody.innerHTML = pg.pageItems.map(function (m) {
+      var b = Business.getStockBalance(GODOWN_ID, m.id);
+      var stockChip = !b.txns.length
+        ? '<span class="desc-cell">No activity yet</span>'
+        : '<span class="chip ' + (b.isLowStock ? "chip-pink" : "chip-green") + '">' + b.balance + ' ' + m.unit + '</span>';
+
+      return '<tr>' +
+        '<td><strong>' + m.name + '</strong></td>' +
+        '<td><span class="chip chip-slate">' + (m.category || "—") + '</span></td>' +
+        '<td>' + m.unit + '</td>' +
+        '<td>' + stockChip + '</td>' +
+        '<td>' +
+          '<div class="row-actions">' +
+            '<button class="action-trigger" data-menu-toggle="' + m.id + '">' + App.svg("dots") + '</button>' +
+            '<div class="action-menu" data-menu="' + m.id + '">' +
+              '<button data-billing="' + m.id + '">' + App.svg("fileText") + ' Purchase history</button>' +
+              (canEdit ? '<button data-edit="' + m.id + '">' + App.svg("edit") + ' Edit</button>' : '') +
+              (canDelete ? '<button class="danger" data-delete="' + m.id + '">' + App.svg("trash") + ' Delete</button>' : '') +
+            '</div>' +
+          '</div>' +
+        '</td>' +
+      '</tr>';
+    }).join("");
+
+    App.renderPager(document.getElementById("tablePager"), page, pg.totalPages, function (newPage) { page = newPage; render(); });
+  }
+
+  document.getElementById("searchInput").addEventListener("input", function (e) { searchTerm = e.target.value; page = 1; render(); });
+
+  var openMenuId = null;
+  document.addEventListener("click", function (e) {
+    var toggle = e.target.closest("[data-menu-toggle]");
+    document.querySelectorAll(".action-menu.show").forEach(function (m) { m.classList.remove("show"); });
+    if (toggle) {
+      var id = toggle.getAttribute("data-menu-toggle");
+      openMenuId = id;
+      App.positionActionMenu(id);
+      document.querySelector('[data-menu="' + id + '"]').classList.add("show");
+      return;
+    }
+    var edit = e.target.closest("[data-edit]");
+    if (edit) { openModal(edit.getAttribute("data-edit")); return; }
+    var del = e.target.closest("[data-delete]");
+    if (del) { deleteMat(del.getAttribute("data-delete")); return; }
+    var billing = e.target.closest("[data-billing]");
+    if (billing) { openBillingModal(billing.getAttribute("data-billing")); return; }
+    var viewBill = e.target.closest("[data-viewbill]");
+    if (viewBill) {
+      var txn = Data.getStockTransactions().find(function (x) { return x.id === viewBill.getAttribute("data-viewbill"); });
+      if (txn) openBillDetailModal(txn);
+      return;
+    }
+  });
+
+  var billingModal = document.getElementById("billingModal");
+  function sourceLabel(t) {
+    if (t.source === "transfer") {
+      var srcProj = Data.getProjects().find(function (p) { return p.id === t.sourceProjectId; });
+      return "Transferred (from " + (srcProj ? srcProj.name : "another project") + ")";
+    }
+    if (t.source === "godown") return "From Godown";
+    return t.supplierName ? "Vendor: " + t.supplierName : "Vendor purchase";
+  }
+  function locationLabel(t) {
+    if (t.projectId === GODOWN_ID) return '<span class="chip chip-blue">Godown</span>';
+    var proj = Data.getProjects().find(function (p) { return p.id === t.projectId; });
+    return proj ? proj.name : "—";
+  }
+  function openBillingModal(materialId) {
+    var mat = Data.getMaterials().find(function (m) { return m.id === materialId; });
+    document.getElementById("billingTitle").textContent = "Purchase History — " + (mat ? mat.name : "");
+    var purchases = Data.getStockTransactions()
+      .filter(function (t) { return t.materialId === materialId && t.type === "inward"; })
+      .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+
+    var totalQty = purchases.reduce(function (s, t) { return s + t.quantity; }, 0);
+    var totalCost = purchases.reduce(function (s, t) { return s + t.totalAmount; }, 0);
+    document.getElementById("billingStatGrid").innerHTML =
+      '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("fileText") + '</div><div class="stat-value">' + purchases.length + '</div><div class="stat-label">Purchase entries</div></div>' +
+      '<div class="stat-card"><div class="stat-icon icon-amber">' + App.svg("box") + '</div><div class="stat-value">' + totalQty + ' ' + (mat ? mat.unit : "") + '</div><div class="stat-label">Total quantity purchased</div></div>' +
+      '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(totalCost) + '</div><div class="stat-label">Total billed</div></div>';
+
+    var rowsHtml = purchases.length
+      ? purchases.map(function (t) {
+          return '<tr>' +
+            '<td>' + (t.invoiceNumber ? '<button class="link-btn" data-viewbill="' + t.id + '">' + t.invoiceNumber + '</button>' : "—") + '</td>' +
+            '<td>' + Data.displayDate(t.date) + '</td>' +
+            '<td>' + locationLabel(t) + '</td>' +
+            '<td>' + sourceLabel(t) + '</td>' +
+            '<td>' + t.quantity + ' ' + (mat ? mat.unit : "") + '</td>' +
+            '<td>₹' + t.ratePerUnit + '</td>' +
+            '<td>' + (t.gstAmount ? t.gstPercent + '% (₹' + t.gstAmount + ')' : "—") + '</td>' +
+            '<td class="total-amount text-right">₹' + t.totalAmount + '</td>' +
+          '</tr>';
+        }).join("")
+      : '<tr><td colspan="8"><div class="empty-state compact">' + App.svg("fileText") + '<p>No purchases recorded for this material yet.</p></div></td></tr>';
+
+    if (purchases.length) {
+      var byLocation = {};
+      purchases.forEach(function (t) {
+        byLocation[t.projectId] = (byLocation[t.projectId] || 0) + t.totalAmount;
+      });
+      var subtotalRows = Object.keys(byLocation).map(function (pid) {
+        var label = pid === GODOWN_ID ? "Godown" : (Data.getProjects().find(function (p) { return p.id === pid; }) || {}).name || pid;
+        return '<tr class="table-total-row"><td colspan="7">Subtotal — ' + label + '</td><td class="total-amount text-right">₹' + byLocation[pid].toLocaleString("en-IN") + '</td></tr>';
+      }).join("");
+      rowsHtml += subtotalRows;
+    }
+    document.getElementById("billingBody").innerHTML = rowsHtml;
+
+    billingModal.classList.add("show");
+  }
+  document.getElementById("closeBillingModal").addEventListener("click", function () { billingModal.classList.remove("show"); });
+  document.getElementById("doneBillingModal").addEventListener("click", function () { billingModal.classList.remove("show"); });
+  billingModal.addEventListener("click", function (e) { if (e.target === billingModal) billingModal.classList.remove("show"); });
+  window.addEventListener("scroll", function () { if (openMenuId) App.positionActionMenu(openMenuId); }, true);
+
+  function deleteMat(id) {
+    if (!confirm("Delete this material? Historical stock transactions referencing it will remain but show as unlinked.")) return;
+    Data.saveMaterials(Data.getMaterials().filter(function (m) { return m.id !== id; }));
+    App.showToast("Material deleted");
+    render();
+  }
+
+  var modal = document.getElementById("matModal");
+
+  function openModal(id) {
+    document.getElementById("matForm").reset();
+    document.getElementById("editId").value = id || "";
+    if (id) {
+      var m = Data.getMaterials().find(function (x) { return x.id === id; });
+      document.getElementById("modalTitle").textContent = "Edit Material";
+      document.getElementById("fName").value = m.name;
+      document.getElementById("fCategory").value = m.category || "";
+      document.getElementById("fUnit").value = m.unit;
+    } else {
+      document.getElementById("modalTitle").textContent = "Add Material";
+    }
+    modal.classList.add("show");
+  }
+  function closeModal() { modal.classList.remove("show"); }
+
+  document.getElementById("addBtn").addEventListener("click", function () { openModal(null); });
+  document.getElementById("closeModal").addEventListener("click", closeModal);
+  document.getElementById("cancelModal").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var name = document.getElementById("fName").value.trim();
+    var unit = document.getElementById("fUnit").value.trim();
+    if (!name || !unit) { App.showToast("Name and unit are required", true); return; }
+
+    var id = document.getElementById("editId").value;
+    var existing = id ? Data.getMaterials().find(function (m) { return m.id === id; }) : null;
+    var record = {
+      id: id || Data.uid("m"),
+      name: name,
+      category: document.getElementById("fCategory").value.trim(),
+      unit: unit,
+      reorderThreshold: existing ? existing.reorderThreshold : 0
+    };
+
+    var all = Data.getMaterials();
+    all = id ? all.map(function (m) { return m.id === id ? record : m; }) : all.concat([record]);
+    Data.saveMaterials(all);
+    App.showToast(id ? "Material updated" : "Material added");
+    closeModal();
+    render();
+  });
+
+  /* ---------------- Bill Details modal (view every material under one bill) ---------------- */
+
+  function getBillGroup(t) {
+    if (!t.billId) return [t];
+    return Data.getStockTransactions().filter(function (x) {
+      return x.billId === t.billId && x.projectId === t.projectId && x.type === t.type;
+    });
+  }
+
+  var billDetailModal = document.getElementById("billDetailModal");
+  function openBillDetailModal(t) {
+    var group = getBillGroup(t);
+    var materials = Data.getMaterials();
+    document.getElementById("billDetailTitle").textContent = "Bill Details — " + (t.invoiceNumber || "No bill number");
+    var locationText = t.projectId === GODOWN_ID ? "Godown" : ((Data.getProjects().find(function (p) { return p.id === t.projectId; }) || {}).name || "—");
+    var directionText = t.type === "inward" ? "Inward (received)" : "Outward (issued)";
+    document.getElementById("billDetailMeta").innerHTML =
+      '<div class="view-detail-item"><span>Bill No.</span><strong>' + (t.invoiceNumber || "—") + '</strong></div>' +
+      '<div class="view-detail-item"><span>Date</span><strong>' + Data.displayDate(t.date) + '</strong></div>' +
+      '<div class="view-detail-item"><span>Location</span><strong>' + locationText + '</strong></div>' +
+      '<div class="view-detail-item"><span>Direction</span><strong>' + directionText + '</strong></div>' +
+      (t.supplierName ? '<div class="view-detail-item"><span>Supplier</span><strong>' + t.supplierName + '</strong></div>' : '');
+
+    var total = 0;
+    document.getElementById("billDetailBody").innerHTML = group.map(function (line) {
+      var mat = materials.find(function (m) { return m.id === line.materialId; });
+      total += line.totalAmount;
+      return '<tr>' +
+        '<td><strong>' + (mat ? mat.name : "—") + '</strong></td>' +
+        '<td>' + line.quantity + ' ' + (mat ? mat.unit : "") + '</td>' +
+        '<td>₹' + line.ratePerUnit + '</td>' +
+        '<td>' + (line.gstAmount ? line.gstPercent + '% (₹' + line.gstAmount + ')' : "—") + '</td>' +
+        '<td class="total-amount text-right">₹' + line.totalAmount + '</td>' +
+      '</tr>';
+    }).join("");
+    document.getElementById("billDetailFoot").innerHTML =
+      '<tr class="table-total-row"><td colspan="4">Bill Total</td><td class="total-amount text-right">₹' + total.toLocaleString("en-IN") + '</td></tr>';
+
+    billDetailModal.classList.add("show");
+  }
+  function closeBillDetailModal() { billDetailModal.classList.remove("show"); }
+  document.getElementById("closeBillDetailModal").addEventListener("click", closeBillDetailModal);
+  document.getElementById("doneBillDetailModal").addEventListener("click", closeBillDetailModal);
+  billDetailModal.addEventListener("click", function (e) { if (e.target === billDetailModal) closeBillDetailModal(); });
+
+  render();
+</script>
+</body>
+</html>

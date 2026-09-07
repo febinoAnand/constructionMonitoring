@@ -35,13 +35,12 @@
         <div class="table-scroll">
           <table class="data-table">
             <thead>
-              <tr>
-                <th>Project</th><th>Client</th><th>Status</th><th>Progress</th><th>Target End</th><th></th>
-              </tr>
+              <tr id="tableHeadRow"></tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
+        <div class="panel-footer-row" style="justify-content:flex-end" id="tablePager"></div>
       </div>
     </main>
   </div>
@@ -113,6 +112,18 @@
   var canEdit = App.can("projects", "update");
   var canDelete = App.can("projects", "delete");
   var searchTerm = "";
+  var sortState = { field: null, dir: "asc" };
+  var page = 1;
+  var PAGE_SIZE = 10;
+
+  document.getElementById("tableHeadRow").innerHTML =
+    App.sortableTh("Project", "name", sortState) +
+    App.sortableTh("Client", "clientName", sortState) +
+    App.sortableTh("Status", "status", sortState) +
+    '<th>Progress</th>' +
+    App.sortableTh("Target End", "targetEndDate", sortState) +
+    '<th></th>';
+  App.wireSort(document.getElementById("tableHeadRow"), sortState, function () { page = 1; render(); });
 
   var allCustomers = Data.getCustomers();
   var customerTrigger = document.getElementById("customerTrigger");
@@ -179,10 +190,15 @@
     var tbody = document.getElementById("tableBody");
     if (!projects.length) {
       tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("building") + '<p>No projects found.</p></div></td></tr>';
+      document.getElementById("tablePager").innerHTML = "";
       return;
     }
 
-    tbody.innerHTML = projects.map(function (p) {
+    projects = App.sortRows(projects, sortState);
+    var pg = App.paginate(projects, page, PAGE_SIZE);
+    page = pg.page;
+
+    tbody.innerHTML = pg.pageItems.map(function (p) {
       var est = Business.estimateCompletion(p);
       var pct = Math.max(0, Math.min(100, est.percentComplete));
       var barColor = pct >= 80 ? "#16a34a" : pct >= 40 ? "#f59e0b" : "#ea580c";
@@ -205,10 +221,13 @@
         '</td>' +
       '</tr>';
     }).join("");
+
+    App.renderPager(document.getElementById("tablePager"), page, pg.totalPages, function (newPage) { page = newPage; render(); });
   }
 
   document.getElementById("searchInput").addEventListener("input", function (e) {
     searchTerm = e.target.value;
+    page = 1;
     render();
   });
 
