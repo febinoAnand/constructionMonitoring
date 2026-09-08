@@ -63,7 +63,7 @@
         <div class="field-grid">
           <div class="field full"><label>Title</label><input type="text" id="ettTitle"></div>
           <div class="field full"><label>Assignee</label><input type="text" id="ettAssignee"></div>
-          <div class="field"><label>Date</label><input type="date" id="ettDate"></div>
+          <div class="field"><label>Estimated Completion</label><input type="date" id="ettDate"></div>
           <div class="field"><label>Completed Date</label><input type="date" id="ettCompletedAt"></div>
           <div class="field full"><label>Notes</label><textarea id="ettNotes" rows="4"></textarea></div>
         </div>
@@ -92,6 +92,48 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" id="doneSubtasksModal">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="taskDetailModal">
+  <div class="modal-box wide">
+    <div class="modal-header">
+      <div><h3 id="tdmHeading">Task</h3><p id="tdmSubheading"></p></div>
+      <button class="modal-close" id="closeTaskDetailModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="tdmTimelineStrip" class="timeline-strip"></div>
+      <div class="field-grid">
+        <div class="field full"><label>Title</label><input type="text" id="tdmTitle"></div>
+        <div class="field"><label>Status</label><select id="tdmStatus"></select></div>
+        <div class="field"><label>Estimated Completion</label><input type="date" id="tdmDate"></div>
+        <div class="field"><label>Completed On</label><input type="date" id="tdmCompletedAt"></div>
+        <div class="field full">
+          <label>Assignee</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="tdmAssignee" placeholder="Labourer / team" style="flex:1">
+            <button type="button" class="btn btn-outline" id="tdmAssignToMeBtn">Assign to me</button>
+          </div>
+        </div>
+        <div class="field full"><label>Description / Notes</label><textarea id="tdmNotes" rows="4" placeholder="Add details, blockers, or context about this task..."></textarea></div>
+      </div>
+      <div id="tdmCompletionDetails"></div>
+
+      <div class="field-group-divider">Subtasks &amp; Progress</div>
+      <div id="tdmProgressBar" style="margin-bottom:12px"></div>
+      <div class="checklist-box subtask-list" id="tdmSubtaskList"></div>
+      <div class="subtask-add-row" id="tdmSubtaskAddRow">
+        <input type="text" id="tdmNewSubtaskInput" placeholder="Add a subtask, then press Enter">
+        <button type="button" class="btn btn-outline" id="tdmAddSubtaskBtn">+ Add</button>
+      </div>
+
+      <div class="field-group-divider">Activity</div>
+      <div id="tdmActivityFeed"></div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button type="button" class="btn btn-outline" id="tdmDeleteTaskBtn" style="color:var(--danger);border-color:var(--danger)">Delete Task</button>
+      <button type="button" class="btn btn-primary" id="doneTaskDetailModal">Close</button>
     </div>
   </div>
 </div>
@@ -130,20 +172,30 @@
       '<div class="view-toggle" id="viewToggle">' +
         '<button class="view-toggle-btn" data-view="table">' + App.svg("fileText") + ' Table</button>' +
         '<button class="view-toggle-btn" data-view="board">' + App.svg("columns") + ' Board</button>' +
+        '<button class="view-toggle-btn" data-view="timeline">' + App.svg("clock") + ' Timeline</button>' +
       '</div>' +
       '<div id="boardView" style="display:none"><div class="kanban-board" id="kanbanBoard"></div></div>' +
+      '<div id="timelineView" style="display:none">' +
+        '<div class="panel full-panel">' +
+          '<div class="panel-header"><h3>Task Timeline</h3><span class="panel-tag" id="timelineCount"></span></div>' +
+          '<div id="timelineList"></div>' +
+          '<div class="panel-footer-row" style="justify-content:flex-end" id="timelinePager"></div>' +
+        '</div>' +
+      '</div>' +
       '<div id="tableView">' +
         '<div class="panel full-panel">' +
-          '<div class="panel-header"><h3>All Tasks — Status Overview</h3><span class="panel-tag" id="taskCount"></span></div>' +
-          (canCreate ?
-          '<div style="padding:0 20px 14px">' +
-            '<div class="kanban-quick-add" id="tableQuickAdd" style="max-width:320px;margin-bottom:0">' +
-              '<button class="kanban-quick-add-btn" id="tableQuickAddOpen">' + App.svg("plus") + ' Add task</button>' +
-              '<div class="kanban-quick-add-form" id="tableQuickAddForm" style="display:none">' +
-                '<input type="text" placeholder="Task title, then Enter" id="tableQuickAddInput">' +
-              '</div>' +
+          '<div class="panel-header"><h3>All Tasks — Status Overview</h3>' +
+            '<div style="display:flex;align-items:center;gap:14px">' +
+              '<span class="panel-tag" id="taskCount"></span>' +
+              (canCreate ?
+              '<div class="kanban-quick-add" id="tableQuickAdd" style="max-width:260px;margin-bottom:0">' +
+                '<button class="kanban-quick-add-btn" id="tableQuickAddOpen">' + App.svg("plus") + ' Add task</button>' +
+                '<div class="kanban-quick-add-form" id="tableQuickAddForm" style="display:none">' +
+                  '<input type="text" placeholder="Task title, then Enter" id="tableQuickAddInput">' +
+                '</div>' +
+              '</div>' : '') +
             '</div>' +
-          '</div>' : '') +
+          '</div>' +
           '<div class="table-scroll"><table class="data-table"><thead><tr id="taskTableHead"></tr></thead><tbody id="taskTableBody"></tbody></table></div>' +
           '<div class="panel-footer-row" style="justify-content:flex-end" id="taskTablePager"></div>' +
         '</div>' +
@@ -228,6 +280,7 @@
       var progress = Business.getTaskProgress(t);
       var timelineHtml = '<div class="kanban-card-timeline">' +
         '<span>Created ' + (t.createdAt ? Data.displayDate(t.createdAt) : "—") + '</span>' +
+        (t.date ? '<span class="dot-sep">·</span><span>Est. ' + Data.displayDate(t.date) + '</span>' : '') +
         (t.completedAt ? '<span class="dot-sep">·</span><span>Completed ' + Data.displayDate(t.completedAt) + '</span>' : '') +
       '</div>';
       return '<div class="kanban-card" draggable="' + (canUpdate ? "true" : "false") + '" data-task-id="' + t.id + '" data-open-task="' + t.id + '">' +
@@ -235,7 +288,7 @@
           '<div class="kanban-card-title">' + t.title + '</div>' +
           '<span class="status-pill ' + statusPillClass(t.status) + '">' + statusMeta(t.status).label + '</span>' +
         '</div>' +
-        '<div class="kanban-card-meta"><span class="kanban-card-assignee">' + App.svg("people") + ' ' + (t.assignee || "Unassigned") + '</span><span>' + Data.displayDate(t.date) + '</span></div>' +
+        '<div class="kanban-card-meta"><span class="kanban-card-assignee">' + App.svg("people") + ' ' + (t.assignee || "Unassigned") + '</span></div>' +
         timelineHtml +
         (progress.totalCount > 0 ? '<div style="margin-top:8px">' + miniProgressHtml(progress.percent) + '</div>' : "") +
         fieldChipsHtml(t) +
@@ -276,7 +329,6 @@
       head.innerHTML =
         App.sortableTh("Task", "title", taskSortState) +
         App.sortableTh("Assignee", "assignee", taskSortState) +
-        App.sortableTh("Date", "date", taskSortState) +
         App.sortableTh("Status", "status", taskSortState) +
         '<th>Progress</th>' +
         App.sortableTh("Created", "createdAt", taskSortState) +
@@ -286,12 +338,12 @@
 
       var tasks = App.sortRows(
         Data.getTasks().filter(function (t) { return t.projectId === projectId; }),
-        taskSortState.field ? taskSortState : { field: "date", dir: "desc" }
+        taskSortState.field ? taskSortState : { field: "createdAt", dir: "desc" }
       );
       document.getElementById("taskCount").textContent = tasks.length + " task(s)";
       var body = document.getElementById("taskTableBody");
       if (!tasks.length) {
-        body.innerHTML = '<tr><td colspan="' + (8 + defs.length) + '"><div class="empty-state compact">' + App.svg("columns") + '<p>No tasks yet.</p></div></td></tr>';
+        body.innerHTML = '<tr><td colspan="' + (7 + defs.length) + '"><div class="empty-state compact">' + App.svg("columns") + '<p>No tasks yet.</p></div></td></tr>';
         document.getElementById("taskTablePager").innerHTML = "";
         return;
       }
@@ -300,9 +352,8 @@
       body.innerHTML = pg.pageItems.map(function (t) {
         var progress = Business.getTaskProgress(t);
         return '<tr>' +
-          '<td><a href="project-task-detail.html?id=' + projectId + '&task=' + t.id + '"><strong>' + t.title + '</strong></a></td>' +
+          '<td><a href="#" data-open-task-detail="' + t.id + '"><strong>' + t.title + '</strong></a></td>' +
           '<td>' + (t.assignee || "—") + '</td>' +
-          '<td>' + Data.displayDate(t.date) + '</td>' +
           '<td><span class="status-pill ' + statusPillClass(t.status) + '">' + statusMeta(t.status).label + '</span></td>' +
           '<td style="min-width:110px">' + miniProgressHtml(progress.percent) + '</td>' +
           '<td>' + (t.createdAt ? Data.displayDate(t.createdAt) : '<span class="desc-cell">—</span>') + '</td>' +
@@ -317,6 +368,46 @@
       }).join("");
 
       App.renderPager(document.getElementById("taskTablePager"), taskPage, pg.totalPages, function (newPage) { taskPage = newPage; renderTable(); });
+    }
+
+    var timelinePage = 1;
+    var TIMELINE_PAGE_SIZE = 10;
+
+    function timelineRowHtml(t) {
+      var createdText = t.createdAt ? Data.displayDate(t.createdAt) + " by " + creatorName(t.createdBy) : "—";
+      var estimatedText = t.date ? Data.displayDate(t.date) : "Not set";
+      var completedText = t.completedAt ? Data.displayDate(t.completedAt) : "Not yet completed";
+      return '<div class="panel" style="padding:16px 20px;margin-bottom:12px;cursor:pointer" data-open-task-detail="' + t.id + '">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">' +
+          '<strong style="font-size:14px">' + t.title + '</strong>' +
+          '<span class="status-pill ' + statusPillClass(t.status) + '">' + statusMeta(t.status).label + '</span>' +
+        '</div>' +
+        '<div class="timeline-strip" style="margin:12px 0 0">' +
+          '<div class="timeline-step"><span class="timeline-dot done"></span><div><strong>Created</strong><span>' + createdText + '</span></div></div>' +
+          '<div class="timeline-connector"></div>' +
+          '<div class="timeline-step"><span class="timeline-dot ' + (t.date ? "done" : "pending") + '"></span><div><strong>Estimated Completion</strong><span>' + estimatedText + '</span></div></div>' +
+          '<div class="timeline-connector"></div>' +
+          '<div class="timeline-step"><span class="timeline-dot ' + (t.completedAt ? "done" : "pending") + '"></span><div><strong>Completed</strong><span>' + completedText + '</span></div></div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function renderTimelineView() {
+      var tasks = App.sortRows(
+        Data.getTasks().filter(function (t) { return t.projectId === projectId; }),
+        { field: "createdAt", dir: "desc" }
+      );
+      document.getElementById("timelineCount").textContent = tasks.length + " task(s)";
+      var listEl = document.getElementById("timelineList");
+      if (!tasks.length) {
+        listEl.innerHTML = '<div class="empty-state compact">' + App.svg("clock") + '<p>No tasks yet.</p></div>';
+        document.getElementById("timelinePager").innerHTML = "";
+        return;
+      }
+      var pg = App.paginate(tasks, timelinePage, TIMELINE_PAGE_SIZE);
+      timelinePage = pg.page;
+      listEl.innerHTML = pg.pageItems.map(timelineRowHtml).join("");
+      App.renderPager(document.getElementById("timelinePager"), timelinePage, pg.totalPages, function (newPage) { timelinePage = newPage; renderTimelineView(); });
     }
 
     function wireAddColumn() {
@@ -363,12 +454,13 @@
       renderAll();
     });
 
-    function renderAll() { renderKanban(); renderTable(); }
+    function renderAll() { renderKanban(); renderTable(); renderTimelineView(); }
 
     function setView(view) {
       activeView = view;
       document.getElementById("boardView").style.display = view === "board" ? "" : "none";
       document.getElementById("tableView").style.display = view === "table" ? "" : "none";
+      document.getElementById("timelineView").style.display = view === "timeline" ? "" : "none";
       document.querySelectorAll(".view-toggle-btn").forEach(function (b) {
         b.classList.toggle("active", b.getAttribute("data-view") === view);
       });
@@ -461,6 +553,8 @@
       }
       var open = e.target.closest("[data-open-task]");
       if (open) { window.location.href = "project-task-detail.html?id=" + projectId + "&task=" + open.getAttribute("data-open-task"); return; }
+      var openDetail = e.target.closest("[data-open-task-detail]");
+      if (openDetail) { e.preventDefault(); openTaskDetailModal(openDetail.getAttribute("data-open-task-detail")); return; }
       var editTask = e.target.closest("[data-edit-task]");
       if (editTask) { openEditTaskTableModal(editTask.getAttribute("data-edit-task")); return; }
       var subtasksBtn = e.target.closest("[data-subtasks]");
@@ -666,7 +760,7 @@
         var me = App.getCurrentUser();
         tasks.push({
           id: newTaskId, projectId: projectId, title: title,
-          assignee: "", status: "todo", date: Data.isoDate(Data.today()), notes: "", customFields: {}, subtasks: [],
+          assignee: "", status: "todo", date: null, notes: "", customFields: {}, subtasks: [],
           createdAt: Data.isoDate(Data.today()), createdBy: me ? me.id : null,
           completedAt: null, sqft: null, completionCost: null, personsCount: null, personInCharge: "", durationDays: null, materialUsed: ""
         });
@@ -731,7 +825,7 @@
       var me = App.getCurrentUser();
       tasks.push({
         id: newTaskId, projectId: projectId, title: title,
-        assignee: "", status: statusKey, date: Data.isoDate(Data.today()), notes: "", customFields: {}, subtasks: [],
+        assignee: "", status: statusKey, date: null, notes: "", customFields: {}, subtasks: [],
         createdAt: Data.isoDate(Data.today()), createdBy: me ? me.id : null,
         completedAt: null, sqft: null, completionCost: null, personsCount: null, personInCharge: "", durationDays: null, materialUsed: ""
       });
@@ -753,6 +847,273 @@
         }
       }, 150);
     });
+
+    /* ---------------- Task Detail Modal (full detail view, opened from the table) ---------------- */
+
+    function creatorName(userId) {
+      var u = Data.getUsers().find(function (x) { return x.id === userId; });
+      return u ? u.name : "—";
+    }
+
+    var taskDetailModal = document.getElementById("taskDetailModal");
+    var currentTaskDetailId = null;
+    function getCurrentTaskDetail() { return Data.getTasks().find(function (t) { return t.id === currentTaskDetailId; }); }
+
+    function openTaskDetailModal(taskId) {
+      currentTaskDetailId = taskId;
+      renderTaskDetailModal();
+      taskDetailModal.classList.add("show");
+    }
+    function closeTaskDetailModal() { taskDetailModal.classList.remove("show"); currentTaskDetailId = null; }
+    document.getElementById("closeTaskDetailModal").addEventListener("click", closeTaskDetailModal);
+    document.getElementById("doneTaskDetailModal").addEventListener("click", closeTaskDetailModal);
+    taskDetailModal.addEventListener("click", function (e) { if (e.target === taskDetailModal) closeTaskDetailModal(); });
+
+    function saveTdmTaskPatch(patch) {
+      var tasks = Data.getTasks();
+      var t = tasks.find(function (x) { return x.id === currentTaskDetailId; });
+      if (!t) return;
+      var wasDone = t.status === "done";
+      Object.assign(t, patch);
+      Data.saveTasks(tasks);
+      if (!wasDone && t.status === "done") { syncCompletionReport(t); syncCompletionExpense(t); }
+      renderAll();
+    }
+
+    function tdmCompletionDetailsHtml(t) {
+      return '<div class="field-group-divider">Completion Details</div>' +
+        '<div class="view-detail-grid">' +
+          '<div class="view-detail-item"><span>Area</span><strong>' + (t.sqft || 0) + ' sqft</strong></div>' +
+          '<div class="view-detail-item"><span>Cost</span><strong>₹' + (t.completionCost || 0) + '</strong></div>' +
+          '<div class="view-detail-item"><span>No. of Persons</span><strong>' + (t.personsCount || 0) + '</strong></div>' +
+          '<div class="view-detail-item"><span>Person in Charge</span><strong>' + (t.personInCharge || "—") + '</strong></div>' +
+          '<div class="view-detail-item"><span>Duration</span><strong>' + (t.durationDays || 0) + ' day(s)</strong></div>' +
+          '<div class="view-detail-item"><span>Material Used</span><strong>' + (t.materialUsed || "—") + '</strong></div>' +
+        '</div>';
+    }
+
+    function renderTaskDetailModal() {
+      var t = getCurrentTaskDetail();
+      if (!t) return;
+      document.getElementById("tdmHeading").textContent = t.title;
+      document.getElementById("tdmSubheading").textContent = project.name + " · " + project.code;
+
+      var createdText = t.createdAt ? Data.displayDate(t.createdAt) + " by " + creatorName(t.createdBy) : "—";
+      var estimatedText = t.date ? Data.displayDate(t.date) : "Not set";
+      var completedText = t.completedAt ? Data.displayDate(t.completedAt) : "Not yet completed";
+      document.getElementById("tdmTimelineStrip").innerHTML =
+        '<div class="timeline-step"><span class="timeline-dot done"></span><div><strong>Created</strong><span>' + createdText + '</span></div></div>' +
+        '<div class="timeline-connector"></div>' +
+        '<div class="timeline-step"><span class="timeline-dot ' + (t.date ? "done" : "pending") + '"></span><div><strong>Estimated Completion</strong><span>' + estimatedText + '</span></div></div>' +
+        '<div class="timeline-connector"></div>' +
+        '<div class="timeline-step"><span class="timeline-dot ' + (t.completedAt ? "done" : "pending") + '"></span><div><strong>Completed</strong><span>' + completedText + '</span></div></div>';
+
+      var statusSelect = document.getElementById("tdmStatus");
+      statusSelect.innerHTML = statusColumns().map(function (s) { return '<option value="' + s.key + '">' + s.label + '</option>'; }).join("");
+      statusSelect.value = t.status;
+
+      document.getElementById("tdmTitle").value = t.title;
+      document.getElementById("tdmDate").value = t.date || "";
+      document.getElementById("tdmCompletedAt").value = t.completedAt || "";
+      document.getElementById("tdmAssignee").value = t.assignee || "";
+      document.getElementById("tdmNotes").value = t.notes || "";
+
+      var readOnly = !canUpdate;
+      ["tdmTitle", "tdmStatus", "tdmDate", "tdmCompletedAt", "tdmAssignee", "tdmNotes"].forEach(function (id) {
+        document.getElementById(id).disabled = readOnly;
+      });
+      document.getElementById("tdmAssignToMeBtn").style.display = canUpdate ? "" : "none";
+      document.getElementById("tdmSubtaskAddRow").style.display = canUpdate ? "" : "none";
+      document.getElementById("tdmDeleteTaskBtn").style.display = canDelete ? "" : "none";
+
+      document.getElementById("tdmCompletionDetails").innerHTML = t.completedAt ? tdmCompletionDetailsHtml(t) : "";
+
+      renderTdmProgress();
+      renderTdmSubtaskList();
+      renderTdmActivity();
+    }
+
+    function renderTdmProgress() {
+      var t = getCurrentTaskDetail();
+      if (!t) return;
+      var prog = Business.getTaskProgress(t);
+      Charts.renderProgressBar(document.getElementById("tdmProgressBar"), prog.percent, {
+        metaText: prog.totalCount > 0 ? (prog.doneCount + " of " + prog.totalCount + " subtasks done") : "No subtasks yet — based on task status"
+      });
+    }
+
+    function renderTdmSubtaskList() {
+      var t = getCurrentTaskDetail();
+      var listEl = document.getElementById("tdmSubtaskList");
+      if (!t || !listEl) return;
+      var subtasks = t.subtasks || [];
+      if (!subtasks.length) {
+        listEl.innerHTML = '<div class="empty-state compact" style="padding:14px 8px"><p>No subtasks yet. Break this task down into smaller steps below.</p></div>';
+        return;
+      }
+      listEl.innerHTML = subtasks.map(function (s) {
+        return '<div class="subtask-row">' +
+          '<input type="checkbox" data-tdm-subtask-toggle="' + s.id + '"' + (s.done ? ' checked' : '') + (canUpdate ? '' : ' disabled') + '>' +
+          '<span class="subtask-title' + (s.done ? ' done' : '') + '">' + s.title + '</span>' +
+          (canUpdate ? '<button type="button" class="action-trigger" data-tdm-subtask-edit="' + s.id + '" title="Edit subtask">' + App.svg("edit") + '</button>' : '') +
+          (canUpdate ? '<button type="button" class="action-trigger" data-tdm-subtask-del="' + s.id + '" title="Remove subtask">' + App.svg("trash") + '</button>' : '') +
+        '</div>';
+      }).join("");
+    }
+
+    function editTdmSubtaskInline(btn) {
+      var id = btn.getAttribute("data-tdm-subtask-edit");
+      var row = btn.closest(".subtask-row");
+      var titleSpan = row.querySelector(".subtask-title");
+      var currentTitle = titleSpan.textContent;
+      var input = document.createElement("input");
+      input.type = "text";
+      input.className = "subtask-edit-input";
+      input.value = currentTitle;
+      titleSpan.replaceWith(input);
+      input.focus();
+      input.select();
+
+      var committed = false;
+      function commit() {
+        if (committed) return;
+        committed = true;
+        var newTitle = input.value.trim();
+        var t = getCurrentTaskDetail();
+        if (newTitle && newTitle !== currentTitle && t) {
+          saveTdmTaskPatch({ subtasks: (t.subtasks || []).map(function (s) { return s.id === id ? Object.assign({}, s, { title: newTitle }) : s; }) });
+          Data.addTaskActivity(t.id, 'Subtask renamed: "' + currentTitle + '" → "' + newTitle + '"');
+          renderTdmActivity();
+        }
+        renderTdmSubtaskList();
+      }
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); commit(); }
+        else if (e.key === "Escape") { e.preventDefault(); committed = true; renderTdmSubtaskList(); }
+      });
+      input.addEventListener("blur", commit);
+    }
+
+    function addTdmSubtaskFromInput() {
+      var input = document.getElementById("tdmNewSubtaskInput");
+      var t = getCurrentTaskDetail();
+      if (!input || !t) return;
+      var title = input.value.trim();
+      if (!title) return;
+      saveTdmTaskPatch({ subtasks: (t.subtasks || []).concat([{ id: Data.uid("st"), title: title, done: false }]) });
+      Data.addTaskActivity(t.id, "Subtask added: " + title);
+      input.value = "";
+      input.focus();
+      renderTdmProgress();
+      renderTdmSubtaskList();
+      renderTdmActivity();
+    }
+
+    function renderTdmActivity() {
+      var t = getCurrentTaskDetail();
+      var feedEl = document.getElementById("tdmActivityFeed");
+      if (!t || !feedEl) return;
+      var entries = Data.getTaskActivity().filter(function (a) { return a.taskId === t.id; })
+        .sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : (a.id < b.id ? 1 : -1)); });
+      feedEl.innerHTML = entries.length
+        ? '<div class="activity-list">' + entries.map(function (a) {
+            return '<div class="activity-item"><div class="activity-dot"></div><div><p>' + a.message + '</p><span>' + Data.displayDate(a.date) + '</span></div></div>';
+          }).join("") + '</div>'
+        : '<div class="empty-state compact">' + App.svg("clock") + '<p>No activity logged yet.</p></div>';
+    }
+
+    document.getElementById("tdmTitle").addEventListener("change", function () {
+      saveTdmTaskPatch({ title: this.value.trim() || "Untitled task" });
+      document.getElementById("tdmHeading").textContent = this.value.trim() || "Untitled task";
+    });
+    document.getElementById("tdmStatus").addEventListener("change", function () {
+      var newStatus = this.value;
+      var t = getCurrentTaskDetail();
+      if (!t) return;
+      if (newStatus === "done" && t.status !== "done") {
+        var idForCompletion = t.id;
+        closeTaskDetailModal();
+        openCompleteTaskModal(idForCompletion);
+        return;
+      }
+      var oldStatus = t.status;
+      saveTdmTaskPatch({ status: newStatus });
+      Data.addTaskActivity(t.id, "Status changed from " + statusMeta(oldStatus).label + " to " + statusMeta(newStatus).label);
+      renderTaskDetailModal();
+      App.showToast("Status updated to " + statusMeta(newStatus).label);
+    });
+    document.getElementById("tdmAssignee").addEventListener("change", function () { saveTdmTaskPatch({ assignee: this.value.trim() }); });
+    document.getElementById("tdmDate").addEventListener("change", function () { saveTdmTaskPatch({ date: this.value || null }); renderTaskDetailModal(); });
+    document.getElementById("tdmCompletedAt").addEventListener("change", function () {
+      var newDate = this.value || null;
+      var t = getCurrentTaskDetail();
+      if (!t) return;
+      if (newDate && t.status !== "done") {
+        var idForCompletion2 = t.id;
+        closeTaskDetailModal();
+        openCompleteTaskModal(idForCompletion2, newDate);
+        return;
+      }
+      saveTdmTaskPatch({ completedAt: newDate });
+      renderTaskDetailModal();
+    });
+    document.getElementById("tdmNotes").addEventListener("change", function () { saveTdmTaskPatch({ notes: this.value }); });
+
+    document.getElementById("tdmAssignToMeBtn").addEventListener("click", function () {
+      var me = App.getCurrentUser();
+      if (!me) return;
+      document.getElementById("tdmAssignee").value = me.name;
+      saveTdmTaskPatch({ assignee: me.name });
+      App.showToast("Assigned to you");
+    });
+
+    document.getElementById("tdmDeleteTaskBtn").addEventListener("click", function () {
+      var t = getCurrentTaskDetail();
+      if (!t) return;
+      if (!confirm("Delete this task?")) return;
+      Data.saveTasks(Data.getTasks().filter(function (x) { return x.id !== t.id; }));
+      App.showToast("Task removed");
+      closeTaskDetailModal();
+      renderAll();
+    });
+
+    document.getElementById("tdmSubtaskList").addEventListener("change", function (e) {
+      var cb = e.target.closest("[data-tdm-subtask-toggle]");
+      if (!cb) return;
+      var t = getCurrentTaskDetail();
+      if (!t) return;
+      var id = cb.getAttribute("data-tdm-subtask-toggle");
+      var subtasks = (t.subtasks || []).map(function (s) { return s.id === id ? Object.assign({}, s, { done: cb.checked }) : s; });
+      saveTdmTaskPatch({ subtasks: subtasks });
+      var st = subtasks.find(function (s) { return s.id === id; });
+      Data.addTaskActivity(t.id, (st.done ? "Subtask completed: " : "Subtask reopened: ") + st.title);
+      renderTdmProgress();
+      renderTdmSubtaskList();
+      renderTdmActivity();
+      var allDone = subtasks.length > 0 && subtasks.every(function (s) { return s.done; });
+      if (allDone && t.status !== "done") {
+        var idForCompletion3 = t.id;
+        closeTaskDetailModal();
+        openCompleteTaskModal(idForCompletion3);
+      }
+    });
+    document.getElementById("tdmSubtaskList").addEventListener("click", function (e) {
+      var editBtn = e.target.closest("[data-tdm-subtask-edit]");
+      if (editBtn) { editTdmSubtaskInline(editBtn); return; }
+      var btn = e.target.closest("[data-tdm-subtask-del]");
+      if (!btn) return;
+      var t = getCurrentTaskDetail();
+      if (!t) return;
+      var id = btn.getAttribute("data-tdm-subtask-del");
+      var removed = (t.subtasks || []).find(function (s) { return s.id === id; });
+      saveTdmTaskPatch({ subtasks: (t.subtasks || []).filter(function (s) { return s.id !== id; }) });
+      if (removed) Data.addTaskActivity(t.id, "Subtask removed: " + removed.title);
+      renderTdmProgress();
+      renderTdmSubtaskList();
+      renderTdmActivity();
+    });
+    document.getElementById("tdmAddSubtaskBtn").addEventListener("click", addTdmSubtaskFromInput);
+    document.getElementById("tdmNewSubtaskInput").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); addTdmSubtaskFromInput(); } });
 
     renderAll();
   }

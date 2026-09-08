@@ -30,7 +30,7 @@
 <div class="modal-overlay" id="expModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Add Expense</h3><p>Transport, equipment, permits, utilities & misc. Wage payments are recorded from the Wages tab and shown here automatically.</p></div>
+      <div><h3>Add Expense</h3><p>Transport, equipment, permits, utilities, supervisor salary & misc. Wage payments and a supervisor's monthly salary are recorded from the Wages tab and Users page and shown here automatically — use this form for one-off entries.</p></div>
       <button class="modal-close" id="closeModal">&times;</button>
     </div>
     <div class="modal-body">
@@ -42,6 +42,7 @@
               <option value="equipment_rental">Equipment Rental</option>
               <option value="permits_fees">Permits & Fees</option>
               <option value="utilities">Utilities</option>
+              <option value="supervisor_salary">Supervisor Salary</option>
               <option value="misc">Miscellaneous</option>
             </select>
           </div>
@@ -54,6 +55,35 @@
     <div class="modal-footer">
       <button class="btn btn-outline" id="cancelModal">Cancel</button>
       <button class="btn btn-primary" id="saveBtn">Save Expense</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="downloadModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Download Expenses</h3><p>Choose a file format and date range to export.</p></div>
+      <button class="modal-close" id="closeDownloadModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="downloadForm">
+        <div class="field-grid">
+          <div class="field full">
+            <label>File Format</label>
+            <div class="format-toggle" id="dlFormatToggle">
+              <button type="button" class="format-toggle-btn active" data-format="pdf">PDF</button>
+              <button type="button" class="format-toggle-btn" data-format="csv">CSV</button>
+            </div>
+            <input type="hidden" id="dlFormat" value="pdf">
+          </div>
+          <div class="field"><label>From Date</label><input type="date" id="dlFrom"></div>
+          <div class="field"><label>To Date</label><input type="date" id="dlTo"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelDownloadModal">Cancel</button>
+      <button class="btn btn-primary" id="confirmDownloadBtn">Download</button>
     </div>
   </div>
 </div>
@@ -94,7 +124,7 @@
         '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Purchased</th><th class="text-right">Purchase Cost</th><th>Used</th><th class="text-right">Usage Cost</th><th>Balance</th></tr></thead><tbody id="materialBody"></tbody></table></div>' +
       '</div>' +
       '<div class="table-card" style="margin-top:20px">' +
-        '<div class="table-toolbar"><span class="toolbar-meta">Every expense for this project — transport, equipment, permits, utilities, misc &amp; wages</span></div>' +
+        '<div class="table-toolbar"><span class="toolbar-meta">Every expense for this project — transport, equipment, permits, utilities, misc &amp; wages</span><button class="btn btn-outline" id="downloadBtn">' + App.svg("download") + ' Download</button></div>' +
         '<div class="table-scroll"><table class="data-table"><thead><tr id="fullHeadRow"></tr></thead><tbody id="fullBody"></tbody><tfoot id="fullFoot"></tfoot></table></div>' +
         '<div class="panel-footer-row" style="justify-content:flex-end" id="fullPager"></div>' +
       '</div>';
@@ -234,6 +264,30 @@
       document.getElementById("fDate").value = Data.isoDate(Data.today());
       modal.classList.remove("show");
       renderAll();
+    });
+
+    var downloadModal = document.getElementById("downloadModal");
+    document.getElementById("downloadBtn").addEventListener("click", function () {
+      document.getElementById("dlFrom").value = "";
+      document.getElementById("dlTo").value = Data.isoDate(Data.today());
+      document.getElementById("dlFormat").value = "pdf";
+      document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-format") === "pdf"); });
+      downloadModal.classList.add("show");
+    });
+    document.getElementById("dlFormatToggle").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-format]");
+      if (!btn) return;
+      document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.getElementById("dlFormat").value = btn.getAttribute("data-format");
+    });
+    document.getElementById("closeDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+    document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+    downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
+    document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
+      var format = document.getElementById("dlFormat").value.toUpperCase();
+      downloadModal.classList.remove("show");
+      App.showToast("Your " + format + " file is downloading...");
     });
 
     renderAll();

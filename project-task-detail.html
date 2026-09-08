@@ -87,9 +87,12 @@
 
     function renderTimeline() {
       var createdText = task.createdAt ? Data.displayDate(task.createdAt) + " by " + creatorName(task.createdBy) : "—";
+      var estimatedText = task.date ? Data.displayDate(task.date) : "Not set";
       var completedText = task.completedAt ? Data.displayDate(task.completedAt) : "Not yet completed";
       document.getElementById("timelineStrip").innerHTML =
         '<div class="timeline-step"><span class="timeline-dot done"></span><div><strong>Created</strong><span>' + createdText + '</span></div></div>' +
+        '<div class="timeline-connector"></div>' +
+        '<div class="timeline-step"><span class="timeline-dot ' + (task.date ? "done" : "pending") + '"></span><div><strong>Estimated Completion</strong><span>' + estimatedText + '</span></div></div>' +
         '<div class="timeline-connector"></div>' +
         '<div class="timeline-step"><span class="timeline-dot ' + (task.completedAt ? "done" : "pending") + '"></span><div><strong>Completed</strong><span>' + completedText + '</span></div></div>';
     }
@@ -107,7 +110,7 @@
               '<div class="field-grid">' +
                 '<div class="field full"><label>Title</label><input type="text" id="tdTitle"></div>' +
                 '<div class="field"><label>Status</label><select id="tdStatus"></select></div>' +
-                '<div class="field"><label>Date</label><input type="date" id="tdDate"></div>' +
+                '<div class="field"><label>Estimated Completion</label><input type="date" id="tdDate"></div>' +
                 '<div class="field"><label>Completed On</label><input type="date" id="tdCompletedAt"></div>' +
                 '<div class="field full">' +
                   '<label>Assignee</label>' +
