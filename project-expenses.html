@@ -5,6 +5,82 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Project Expenses</title>
 <link rel="stylesheet" href="assets/style.css">
+<style>
+  /* Table Alignment & Layout Corrections */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .data-table th, 
+  .data-table td {
+    vertical-align: middle;
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+
+  .data-table th {
+    white-space: nowrap;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+  }
+
+  /* Description text container */
+  .data-table td .desc-cell {
+    display: inline-block;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+
+  /* Strict sizing for all icons within tables */
+  .data-table svg,
+  .action-trigger svg {
+    width: 16px !important;
+    height: 16px !important;
+    min-width: 16px;
+    display: inline-block;
+    vertical-align: middle;
+  }
+
+  /* Action column styling */
+  .action-cell {
+    text-align: right;
+    white-space: nowrap;
+    width: 140px;
+  }
+
+  /* Source chips for wages/supervisor rows */
+  .source-chip {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: #f1f5f9;
+    color: #64748b;
+  }
+
+  /* Text-based delete button */
+  .delete-text-btn {
+    background: none;
+    border: none;
+    color: #ef4444;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.2s ease;
+  }
+
+  .delete-text-btn:hover {
+    background: #fee2e2;
+  }
+</style>
 </head>
 <body>
 
@@ -30,7 +106,7 @@
 <div class="modal-overlay" id="expModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Add Expense</h3><p>Transport, equipment, permits, utilities & misc. Wage payments are recorded from the Wages tab and shown here automatically.</p></div>
+      <div><h3>Add Expense</h3><p>Transport, equipment, permits, utilities, supervisor salary & misc. Wage payments and a supervisor's monthly salary are recorded from the Wages tab and Users page and shown here automatically — use this form for one-off entries.</p></div>
       <button class="modal-close" id="closeModal">&times;</button>
     </div>
     <div class="modal-body">
@@ -42,6 +118,7 @@
               <option value="equipment_rental">Equipment Rental</option>
               <option value="permits_fees">Permits & Fees</option>
               <option value="utilities">Utilities</option>
+              <option value="supervisor_salary">Supervisor Salary</option>
               <option value="misc">Miscellaneous</option>
             </select>
           </div>
@@ -54,6 +131,35 @@
     <div class="modal-footer">
       <button class="btn btn-outline" id="cancelModal">Cancel</button>
       <button class="btn btn-primary" id="saveBtn">Save Expense</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="downloadModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Download Expenses</h3><p>Choose a file format and date range to export.</p></div>
+      <button class="modal-close" id="closeDownloadModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="downloadForm">
+        <div class="field-grid">
+          <div class="field full">
+            <label>File Format</label>
+            <div class="format-toggle" id="dlFormatToggle">
+              <button type="button" class="format-toggle-btn active" data-format="pdf">PDF</button>
+              <button type="button" class="format-toggle-btn" data-format="csv">CSV</button>
+            </div>
+            <input type="hidden" id="dlFormat" value="pdf">
+          </div>
+          <div class="field"><label>From Date</label><input type="date" id="dlFrom"></div>
+          <div class="field"><label>To Date</label><input type="date" id="dlTo"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelDownloadModal">Cancel</button>
+      <button class="btn btn-primary" id="confirmDownloadBtn">Download</button>
     </div>
   </div>
 </div>
@@ -94,7 +200,7 @@
         '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Purchased</th><th class="text-right">Purchase Cost</th><th>Used</th><th class="text-right">Usage Cost</th><th>Balance</th></tr></thead><tbody id="materialBody"></tbody></table></div>' +
       '</div>' +
       '<div class="table-card" style="margin-top:20px">' +
-        '<div class="table-toolbar"><span class="toolbar-meta">Every expense for this project — transport, equipment, permits, utilities, misc &amp; wages</span></div>' +
+        '<div class="table-toolbar"><span class="toolbar-meta">Every expense for this project — transport, equipment, permits, utilities, misc &amp; wages</span><button class="btn btn-outline" id="downloadBtn">' + App.svg("download") + ' Download</button></div>' +
         '<div class="table-scroll"><table class="data-table"><thead><tr id="fullHeadRow"></tr></thead><tbody id="fullBody"></tbody><tfoot id="fullFoot"></tfoot></table></div>' +
         '<div class="panel-footer-row" style="justify-content:flex-end" id="fullPager"></div>' +
       '</div>';
@@ -109,8 +215,7 @@
       App.sortableTh("Date", "date", fullSortState) +
       App.sortableTh("Category", "category", fullSortState) +
       '<th>Description</th>' +
-      App.sortableTh("Amount", "amount", fullSortState, "text-right") +
-      '<th></th>';
+      App.sortableTh("Amount", "amount", fullSortState, "text-right");
     App.wireSort(document.getElementById("fullHeadRow"), fullSortState, function () { fullPage = 1; renderAll(); });
 
     function renderAll() {
@@ -181,7 +286,7 @@
       var fullBody = document.getElementById("fullBody");
       var fullFoot = document.getElementById("fullFoot");
       if (!merged.length) {
-        fullBody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("wallet") + '<p>No expenses logged for this project yet.</p></div></td></tr>';
+        fullBody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("wallet") + '<p>No expenses logged for this project yet.</p></div></td></tr>';
         fullFoot.innerHTML = "";
         document.getElementById("fullPager").innerHTML = "";
       } else {
@@ -192,27 +297,14 @@
           return '<tr>' +
             '<td>' + Data.displayDate(e.date) + '</td>' +
             '<td><span class="chip ' + categoryChip[e.category] + '">' + categoryLabels[e.category] + '</span></td>' +
-            '<td><span class="desc-cell">' + (e.description || "—") + '</span></td>' +
+            '<td><span class="desc-cell" title="' + (e.description || "") + '">' + (e.description || "—") + '</span></td>' +
             '<td class="total-amount text-right">₹' + e.amount + '</td>' +
-            (e.isWage
-              ? '<td><span class="desc-cell">' + App.svg("coins") + ' via Wages tab</span></td>'
-              : e.isSupervisorSalary
-              ? '<td><span class="desc-cell">' + App.svg("hardHat") + ' via Users page</span></td>'
-              : (canDelete ? '<td><button class="action-trigger" data-del="' + e.id + '">' + App.svg("trash") + '</button></td>' : '<td></td>')) +
           '</tr>';
         }).join("");
-        fullFoot.innerHTML = '<tr class="table-total-row"><td colspan="3">Total (all categories)</td><td class="total-amount text-right">₹' + total.toLocaleString("en-IN") + '</td><td></td></tr>';
+        fullFoot.innerHTML = '<tr class="table-total-row"><td colspan="3">Total (all categories)</td><td class="total-amount text-right">₹' + total.toLocaleString("en-IN") + '</td></tr>';
         App.renderPager(document.getElementById("fullPager"), fullPage, pg.totalPages, function (newPage) { fullPage = newPage; renderAll(); });
       }
     }
-
-    document.getElementById("pageBody").addEventListener("click", function (e) {
-      var btn = e.target.closest("[data-del]");
-      if (!btn) return;
-      Data.saveExpenses(Data.getExpenses().filter(function (x) { return x.id !== btn.getAttribute("data-del"); }));
-      App.showToast("Expense removed");
-      renderAll();
-    });
 
     var modal = document.getElementById("expModal");
     document.getElementById("addBtn").addEventListener("click", function () { modal.classList.add("show"); });
@@ -234,6 +326,30 @@
       document.getElementById("fDate").value = Data.isoDate(Data.today());
       modal.classList.remove("show");
       renderAll();
+    });
+
+    var downloadModal = document.getElementById("downloadModal");
+    document.getElementById("downloadBtn").addEventListener("click", function () {
+      document.getElementById("dlFrom").value = "";
+      document.getElementById("dlTo").value = Data.isoDate(Data.today());
+      document.getElementById("dlFormat").value = "pdf";
+      document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-format") === "pdf"); });
+      downloadModal.classList.add("show");
+    });
+    document.getElementById("dlFormatToggle").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-format]");
+      if (!btn) return;
+      document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.getElementById("dlFormat").value = btn.getAttribute("data-format");
+    });
+    document.getElementById("closeDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+    document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+    downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
+    document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
+      var format = document.getElementById("dlFormat").value.toUpperCase();
+      downloadModal.classList.remove("show");
+      App.showToast("Your " + format + " file is downloading...");
     });
 
     renderAll();

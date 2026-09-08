@@ -59,6 +59,35 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="downloadModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Download Wage Payments</h3><p>Choose a file format and date range to export.</p></div>
+      <button class="modal-close" id="closeDownloadModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="downloadForm">
+        <div class="field-grid">
+          <div class="field full">
+            <label>File Format</label>
+            <div class="format-toggle" id="dlFormatToggle">
+              <button type="button" class="format-toggle-btn active" data-format="pdf">PDF</button>
+              <button type="button" class="format-toggle-btn" data-format="csv">CSV</button>
+            </div>
+            <input type="hidden" id="dlFormat" value="pdf">
+          </div>
+          <div class="field"><label>From Date</label><input type="date" id="dlFrom"></div>
+          <div class="field"><label>To Date</label><input type="date" id="dlTo"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelDownloadModal">Cancel</button>
+      <button class="btn btn-primary" id="confirmDownloadBtn">Download</button>
+    </div>
+  </div>
+</div>
+
 <script src="assets/data.js"></script>
 <script src="assets/business.js"></script>
 <script src="assets/app.js"></script>
@@ -81,7 +110,10 @@
     document.getElementById("pageBody").innerHTML =
       '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
       '<div class="panel full-panel">' +
-        '<div class="panel-header"><h3>Wage Payments</h3>' + (canCreate ? '<button class="btn btn-outline" id="addPayBtn" style="padding:7px 14px;font-size:12.5px">+ Record Payment</button>' : '') + '</div>' +
+        '<div class="panel-header"><h3>Wage Payments</h3><div style="display:flex;align-items:center;gap:10px">' +
+          '<button class="btn btn-outline" id="downloadBtn" style="padding:7px 14px;font-size:12.5px">' + App.svg("download") + ' Download</button>' +
+          (canCreate ? '<button class="btn btn-outline" id="addPayBtn" style="padding:7px 14px;font-size:12.5px">+ Record Payment</button>' : '') +
+        '</div></div>' +
         '<div class="table-scroll"><table class="data-table"><thead><tr id="payHeadRow"></tr></thead><tbody id="payBody"></tbody></table></div>' +
         '<div class="panel-footer-row" style="justify-content:flex-end" id="payPager"></div>' +
       '</div>' +
@@ -235,6 +267,30 @@
       document.getElementById("payDate").value = Data.isoDate(Data.today());
       payModal.classList.remove("show");
       renderAll();
+    });
+
+    var downloadModal = document.getElementById("downloadModal");
+    document.getElementById("downloadBtn").addEventListener("click", function () {
+      document.getElementById("dlFrom").value = "";
+      document.getElementById("dlTo").value = Data.isoDate(Data.today());
+      document.getElementById("dlFormat").value = "pdf";
+      document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-format") === "pdf"); });
+      downloadModal.classList.add("show");
+    });
+    document.getElementById("dlFormatToggle").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-format]");
+      if (!btn) return;
+      document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.getElementById("dlFormat").value = btn.getAttribute("data-format");
+    });
+    document.getElementById("closeDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+    document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+    downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
+    document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
+      var format = document.getElementById("dlFormat").value.toUpperCase();
+      downloadModal.classList.remove("show");
+      App.showToast("Your " + format + " file is downloading...");
     });
 
     renderAll();

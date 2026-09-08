@@ -33,7 +33,7 @@
       </div>
 
       <div class="panel full-panel" style="margin-top:24px">
-        <div class="panel-header"><h3>Godown Transaction History</h3><span class="panel-tag" id="godownTxnCount"></span></div>
+        <div class="panel-header"><h3>Godown Transaction History</h3><div style="display:flex;align-items:center;gap:10px"><span class="panel-tag" id="godownTxnCount"></span><button class="btn btn-outline" id="downloadBtn" style="padding:7px 14px;font-size:12.5px">Download</button></div></div>
         <div class="table-scroll"><table class="data-table"><thead><tr id="txnHeadRow"></tr></thead><tbody id="godownTxnBody"></tbody></table></div>
         <div class="panel-footer-row" style="justify-content:flex-end" id="txnPager"></div>
       </div>
@@ -97,13 +97,42 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="downloadModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Download Transaction History</h3><p>Choose a file format and date range to export.</p></div>
+      <button class="modal-close" id="closeDownloadModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="downloadForm">
+        <div class="field-grid">
+          <div class="field full">
+            <label>File Format</label>
+            <div class="format-toggle" id="dlFormatToggle">
+              <button type="button" class="format-toggle-btn active" data-format="pdf">PDF</button>
+              <button type="button" class="format-toggle-btn" data-format="csv">CSV</button>
+            </div>
+            <input type="hidden" id="dlFormat" value="pdf">
+          </div>
+          <div class="field"><label>From Date</label><input type="date" id="dlFrom"></div>
+          <div class="field"><label>To Date</label><input type="date" id="dlTo"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelDownloadModal">Cancel</button>
+      <button class="btn btn-primary" id="confirmDownloadBtn">Download</button>
+    </div>
+  </div>
+</div>
+
 <script src="assets/data.js"></script>
 <script src="assets/business.js"></script>
 <script src="assets/app.js"></script>
 <script src="assets/charts.js"></script>
 <script>
   App.requireAuth();
-  App.renderShell({ active: "materials", title: "Godown", subtitle: "Central material store" });
+  App.renderShell({ active: "godown", title: "Godown", subtitle: "Central material store" });
   App.guardPermission("stock", "read");
   var canEdit = App.can("stock", "update");
   var canDelete = App.can("stock", "delete");
@@ -436,6 +465,30 @@
     Data.saveStockTransactions(Data.getStockTransactions().filter(function (t) { return t.id !== btn.getAttribute("data-gdel"); }));
     App.showToast("Entry removed");
     renderGodown();
+  });
+
+  var downloadModal = document.getElementById("downloadModal");
+  document.getElementById("downloadBtn").addEventListener("click", function () {
+    document.getElementById("dlFrom").value = "";
+    document.getElementById("dlTo").value = Data.isoDate(Data.today());
+    document.getElementById("dlFormat").value = "pdf";
+    document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-format") === "pdf"); });
+    downloadModal.classList.add("show");
+  });
+  document.getElementById("dlFormatToggle").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-format]");
+    if (!btn) return;
+    document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.remove("active"); });
+    btn.classList.add("active");
+    document.getElementById("dlFormat").value = btn.getAttribute("data-format");
+  });
+  document.getElementById("closeDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+  document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
+  downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
+  document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
+    var format = document.getElementById("dlFormat").value.toUpperCase();
+    downloadModal.classList.remove("show");
+    App.showToast("Your " + format + " file is downloading...");
   });
 
   renderGodown();

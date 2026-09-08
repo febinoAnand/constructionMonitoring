@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Manage Materials</title>
+<title>Materials</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -18,13 +18,10 @@
     <main class="content">
       <div class="page-header-row">
         <div>
-          <h2>Manage Materials</h2>
+          <h2>Materials</h2>
           <p>Material masters — name, category and unit. Stock levels and bills are tracked on the <a href="godown.html">Godown</a> page.</p>
         </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <a class="btn btn-outline" href="godown.html">&larr; Back to Godown</a>
-          <button class="btn btn-primary" id="addBtn" data-require="stock:create">+ Add Material</button>
-        </div>
+        <button class="btn btn-primary" id="addBtn" data-require="stock:create">+ Add Material</button>
       </div>
 
       <div class="table-card">
@@ -110,7 +107,7 @@
 <script src="assets/charts.js"></script>
 <script>
   App.requireAuth();
-  App.renderShell({ active: "materials", title: "Manage Materials", subtitle: "Material masters" });
+  App.renderShell({ active: "materials", title: "Materials", subtitle: "Material masters" });
   App.guardPermission("stock", "read");
   var canEdit = App.can("stock", "update");
   var canDelete = App.can("stock", "delete");

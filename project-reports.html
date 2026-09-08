@@ -82,9 +82,24 @@
         '<button type="button" class="btn btn-outline" id="reportFilterClear" style="padding:9px 16px">Clear</button>' +
         '<button type="button" class="btn btn-outline" id="downloadBtn" style="padding:9px 16px;margin-left:auto">' + App.svg("download") + ' Download</button>' +
       '</form>' +
-      '<div class="activity-list" id="reportList" style="max-width:820px"></div>';
+      '<div class="table-card">' +
+        '<div class="table-toolbar"><span class="toolbar-meta" id="repCount"></span></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr id="repHeadRow"></tr></thead><tbody id="repBody"></tbody></table></div>' +
+        '<div class="panel-footer-row" style="justify-content:flex-end" id="repPager"></div>' +
+      '</div>';
 
     var repFrom = "", repTo = "";
+    var repSortState = { field: null, dir: "asc" };
+    var repPage = 1;
+    var REP_PAGE_SIZE = 10;
+
+    document.getElementById("repHeadRow").innerHTML =
+      App.sortableTh("Date", "date", repSortState) +
+      App.sortableTh("Title", "title", repSortState) +
+      '<th>Source</th>' +
+      '<th>Description</th>' +
+      '<th></th>';
+    App.wireSort(document.getElementById("repHeadRow"), repSortState, function () { repPage = 1; renderReports(); });
 
     function renderReports() {
       var reports = Data.getWorkReports().filter(function (r) {
@@ -92,33 +107,39 @@
         if (repFrom && r.date < repFrom) return false;
         if (repTo && r.date > repTo) return false;
         return true;
-      }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      });
 
-      var listEl = document.getElementById("reportList");
+      var body = document.getElementById("repBody");
+      document.getElementById("repCount").textContent = reports.length + (reports.length === 1 ? " report" : " reports");
+
       if (!reports.length) {
-        listEl.innerHTML = '<div class="panel"><div class="empty-state compact">' + App.svg("fileText") + '<p>' + (repFrom || repTo ? "No work reports in this date range." : "No work reports logged yet.") + '</p></div></div>';
+        body.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("fileText") + '<p>' + (repFrom || repTo ? "No work reports in this date range." : "No work reports logged yet.") + '</p></div></td></tr>';
+        document.getElementById("repPager").innerHTML = "";
         return;
       }
 
-      listEl.innerHTML = reports.map(function (r) {
+      var sorted = App.sortRows(reports, repSortState.field ? repSortState : { field: "date", dir: "desc" });
+      var pg = App.paginate(sorted, repPage, REP_PAGE_SIZE);
+      repPage = pg.page;
+
+      body.innerHTML = pg.pageItems.map(function (r) {
         var isAuto = r.source === "task_complete";
         var sourceChip = isAuto
-          ? '<span class="chip chip-green">' + App.svg("check") + ' Auto — task completed</span>'
-          : '<span class="chip chip-slate">Manual entry</span>';
-        return '<div class="panel" style="padding:18px 20px">' +
-          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">' +
-            '<div>' +
-              '<div style="font-weight:800;font-size:14px;margin-bottom:2px">' + (r.title || "Work Report") + '</div>' +
-              '<div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px">' + Data.displayDate(r.date) + sourceChip + '</div>' +
-              '<p style="margin:0;font-size:13.5px;line-height:1.6">' + r.description + '</p>' +
-            '</div>' +
-            (canDelete ? '<button class="action-trigger" data-del="' + r.id + '">' + App.svg("trash") + '</button>' : '') +
-          '</div>' +
-        '</div>';
+          ? '<span class="chip chip-green">' + App.svg("check") + ' Auto</span>'
+          : '<span class="chip chip-slate">Manual</span>';
+        return '<tr>' +
+          '<td>' + Data.displayDate(r.date) + '</td>' +
+          '<td><strong>' + (r.title || "Work Report") + '</strong></td>' +
+          '<td>' + sourceChip + '</td>' +
+          '<td><span class="desc-cell">' + r.description + '</span></td>' +
+          (canDelete ? '<td><button class="action-trigger" data-del="' + r.id + '">' + App.svg("trash") + '</button></td>' : '<td></td>') +
+        '</tr>';
       }).join("");
+
+      App.renderPager(document.getElementById("repPager"), repPage, pg.totalPages, function (newPage) { repPage = newPage; renderReports(); });
     }
 
-    document.getElementById("reportList").addEventListener("click", function (e) {
+    document.getElementById("repBody").addEventListener("click", function (e) {
       var btn = e.target.closest("[data-del]");
       if (!btn) return;
       Data.saveWorkReports(Data.getWorkReports().filter(function (r) { return r.id !== btn.getAttribute("data-del"); }));
@@ -130,6 +151,7 @@
       e.preventDefault();
       repFrom = document.getElementById("repFromInput").value;
       repTo = document.getElementById("repToInput").value;
+      repPage = 1;
       renderReports();
     });
 
@@ -137,6 +159,7 @@
       document.getElementById("repFromInput").value = "";
       document.getElementById("repToInput").value = "";
       repFrom = ""; repTo = "";
+      repPage = 1;
       renderReports();
     });
 
