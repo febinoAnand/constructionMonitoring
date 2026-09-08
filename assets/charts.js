@@ -129,11 +129,144 @@
     '</div>';
   }
 
+  /* Horizontal Gantt-style timeline. rows: [{ id, label, status, start, estimate, completed }]
+     start/estimate/completed are ISO date strings ("YYYY-MM-DD") or falsy. Rows without a
+     start date are skipped (nothing to plot). Clicking a bar fires opts.onSelect(id) if given. */
+  function renderGanttChart(container, rows, opts) {
+    opts = opts || {};
+    var DAY = 86400000;
+    function toTime(iso) { return new Date(iso + "T00:00:00").getTime(); }
+    function isoDaysBetween(isoStart, isoEnd) { return Math.round((toTime(isoEnd) - toTime(isoStart)) / DAY); }
+
+    var plotRows = rows.filter(function (r) { return !!r.start; });
+    if (!plotRows.length) {
+      container.innerHTML = '<div class="chart-empty">No dated tasks yet</div>';
+      return;
+    }
+
+    var todayIso = opts.todayIso || new Date().toISOString().slice(0, 10);
+    var todayTime = toTime(todayIso);
+
+    var allTimes = [todayTime];
+    plotRows.forEach(function (r) {
+      allTimes.push(toTime(r.start));
+      if (r.estimate) allTimes.push(toTime(r.estimate));
+      if (r.completed) allTimes.push(toTime(r.completed));
+    });
+    var minTime = Math.min.apply(null, allTimes) - 2 * DAY;
+    var maxTime = Math.max.apply(null, allTimes) + 2 * DAY;
+    var span = Math.max(maxTime - minTime, DAY);
+    function pct(t) { return ((t - minTime) / span) * 100; }
+
+    var spanDays = span / DAY;
+    var ticks = [];
+    var guard = 0;
+    if (spanDays <= 35) {
+      var dd = new Date(minTime);
+      dd.setHours(0, 0, 0, 0);
+      while (dd.getTime() <= maxTime && guard < 40) {
+        var isMonthStart = dd.getDate() === 1;
+        ticks.push({
+          label: isMonthStart ? dd.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : String(dd.getDate()),
+          pct: pct(dd.getTime()),
+          isMonthStart: isMonthStart
+        });
+        dd = new Date(dd.getTime() + DAY);
+        guard++;
+      }
+    } else if (spanDays <= 70) {
+      var wd = new Date(minTime);
+      while (wd.getTime() <= maxTime && guard < 60) {
+        ticks.push({ label: wd.toLocaleDateString("en-GB", { day: "numeric", month: "short" }), pct: pct(wd.getTime()) });
+        wd = new Date(wd.getTime() + 7 * DAY);
+        guard++;
+      }
+    } else {
+      var d = new Date(minTime);
+      d.setDate(1);
+      d.setMonth(d.getMonth() + 1);
+      while (d.getTime() <= maxTime && guard < 48) {
+        ticks.push({ label: d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" }), pct: pct(d.getTime()) });
+        d.setMonth(d.getMonth() + 1);
+        guard++;
+      }
+    }
+
+    var statusColor = { todo: "#f59e0b", in_progress: "#2563eb", done: "#16a34a" };
+
+    var labelsHtml = '<div class="gantt-label-cell gantt-scale-spacer"></div>' + plotRows.map(function (r) {
+      return '<div class="gantt-label-cell" title="' + r.label + '" data-gantt-open="' + r.id + '">' + r.label + '</div>';
+    }).join("");
+
+    var trackRowsHtml = plotRows.map(function (r) {
+      var startTime = toTime(r.start);
+      var endTime = r.completed ? toTime(r.completed) : (r.estimate ? toTime(r.estimate) : startTime + DAY);
+      if (endTime < startTime) endTime = startTime + DAY;
+      var startPct = pct(startTime);
+      var widthPct = Math.max(0.8, pct(endTime) - startPct);
+      var overdue = !r.completed && r.estimate && toTime(r.estimate) < todayTime;
+      var color = r.completed ? statusColor.done : (overdue ? "#dc2626" : (statusColor[r.status] || statusColor.todo));
+      var marker = (!r.completed && r.estimate)
+        ? '<span class="gantt-marker" style="left:' + pct(toTime(r.estimate)) + '%" title="Estimated completion: ' + r.estimate + '"></span>'
+        : '';
+      var durationDays = r.durationDays || (r.estimate ? isoDaysBetween(r.start, r.estimate) : null);
+      var durationLabel = durationDays ? (durationDays + "d") : "";
+      var barLabel = (r.completed ? "Completed " + r.completed : (r.estimate ? "Est. completion " + r.estimate : "")) +
+        (durationDays ? " · " + durationDays + " day" + (durationDays === 1 ? "" : "s") : "");
+      return '<div class="gantt-track-row">' +
+        '<div class="gantt-bar" style="left:' + startPct + '%;width:' + widthPct + '%;background:' + color + '" title="' + r.label + (barLabel ? " — " + barLabel : "") + '" data-gantt-open="' + r.id + '">' +
+          (durationLabel ? '<span class="gantt-bar-label" style="color:' + color + '">' + durationLabel + '</span>' : '') +
+        '</div>' +
+        marker +
+      '</div>';
+    }).join("");
+
+    var datesHtml = '<div class="gantt-label-cell gantt-scale-spacer"></div>' + plotRows.map(function (r) {
+      return '<div class="gantt-label-cell gantt-date-cell">' +
+        '<input type="date" class="gantt-date-input" value="' + (r.estimate || "") + '" data-gantt-date="' + r.id + '" title="Change estimated completion">' +
+      '</div>';
+    }).join("");
+
+    container.innerHTML =
+      '<div class="gantt-chart">' +
+        '<div class="gantt-labels">' + labelsHtml + '</div>' +
+        '<div class="gantt-tracks">' +
+          '<div class="gantt-scale-row">' + ticks.map(function (tk) {
+            var edgeClass = tk.pct < 4 ? " gantt-tick-edge-start" : (tk.pct > 96 ? " gantt-tick-edge-end" : "");
+            return '<span class="gantt-tick' + (tk.isMonthStart ? ' gantt-tick-month' : '') + edgeClass + '" style="left:' + tk.pct + '%">' + tk.label + '</span>';
+          }).join("") + '</div>' +
+          trackRowsHtml +
+          '<div class="gantt-today-line" style="left:' + pct(todayTime) + '%" title="Today"></div>' +
+        '</div>' +
+        '<div class="gantt-labels gantt-dates-col">' + datesHtml + '</div>' +
+      '</div>' +
+      '<div class="gantt-legend">' +
+        '<span><i style="background:' + statusColor.todo + '"></i>To Do</span>' +
+        '<span><i style="background:' + statusColor.in_progress + '"></i>In Progress</span>' +
+        '<span><i style="background:' + statusColor.done + '"></i>Done</span>' +
+        '<span><i style="background:#dc2626"></i>Overdue</span>' +
+        '<span><i class="gantt-legend-marker"></i>Estimated completion</span>' +
+      '</div>';
+
+    if (opts.onSelect) {
+      container.querySelectorAll("[data-gantt-open]").forEach(function (el) {
+        el.addEventListener("click", function () { opts.onSelect(el.getAttribute("data-gantt-open")); });
+      });
+    }
+    if (opts.onDateChange) {
+      container.querySelectorAll("[data-gantt-date]").forEach(function (el) {
+        el.addEventListener("click", function (e) { e.stopPropagation(); });
+        el.addEventListener("change", function () { opts.onDateChange(el.getAttribute("data-gantt-date"), el.value || null); });
+      });
+    }
+  }
+
   window.Charts = {
     renderBarChart: renderBarChart,
     renderDonutChart: renderDonutChart,
     renderProgressRing: renderProgressRing,
     renderProgressBar: renderProgressBar,
+    renderGanttChart: renderGanttChart,
     fmtCompact: fmtCompact,
     PALETTE: PALETTE
   };

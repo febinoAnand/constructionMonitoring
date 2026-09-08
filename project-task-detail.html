@@ -31,24 +31,47 @@
 <div class="modal-overlay" id="completeTaskModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Complete Task</h3><p>Capture a few closing details before marking this task done.</p></div>
+      <div><h3 id="completeTaskModalTitle">Complete Task</h3><p id="completeTaskModalSubtitle">Capture a few closing details before marking this task done.</p></div>
       <button class="modal-close" id="closeCompleteTaskModal">&times;</button>
     </div>
     <div class="modal-body">
       <form id="completeTaskForm">
         <div class="field-grid">
           <div class="field"><label>Area (sqft)</label><input type="number" id="ctSqft" min="0"></div>
-          <div class="field"><label>Cost (₹)</label><input type="number" id="ctCost" min="0"></div>
+          <div class="field"><label>Rate per unit (₹/sqft)</label><input type="number" id="ctRate" min="0"></div>
+          <div class="field"><label>Cost (₹) — auto</label><input type="number" id="ctCost" min="0" disabled></div>
           <div class="field"><label>No. of Persons</label><input type="number" id="ctPersons" min="0"></div>
           <div class="field"><label>Person in Charge</label><input type="text" id="ctInCharge"></div>
           <div class="field"><label>Duration (days)</label><input type="number" id="ctDuration" min="0"></div>
-          <div class="field full"><label>Material Used</label><input type="text" id="ctMaterial" placeholder="e.g. Cement, Sand, Bricks"></div>
+          <div class="field full"><span class="field-hint">Material used is tracked from the Materials Used section below, drawn straight from stock.</span></div>
         </div>
       </form>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" id="cancelCompleteTaskModal">Cancel</button>
       <button class="btn btn-primary" id="saveCompleteTaskBtn">Mark Complete</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay modal-overlay-stacked" id="subtaskCompleteModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Complete Subtask</h3><p id="subtaskCompleteName"></p></div>
+      <button class="modal-close" id="closeSubtaskCompleteModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="subtaskCompleteForm">
+        <div class="field-grid">
+          <div class="field"><label>Area (sqft)</label><input type="number" id="scArea" min="0"></div>
+          <div class="field"><label>Rate per unit (₹/sqft)</label><input type="number" id="scRate" min="0"></div>
+          <div class="field full"><label>Cost (₹) — auto</label><input type="number" id="scCost" min="0" disabled></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelSubtaskCompleteModal">Cancel</button>
+      <button class="btn btn-primary" id="saveSubtaskCompleteBtn">Mark Complete</button>
     </div>
   </div>
 </div>
@@ -85,12 +108,28 @@
       return u ? u.name : "—";
     }
 
+    /* Keeps Estimated Completion date and planned Duration (days) in sync —
+       editing either one recalculates the other from the task's created date. */
+    function isoAddDays(iso, days) {
+      var d = new Date(iso + "T00:00:00");
+      d.setDate(d.getDate() + days);
+      return Data.isoDate(d);
+    }
+    function isoDaysBetween(isoStart, isoEnd) {
+      var a = new Date(isoStart + "T00:00:00");
+      var b = new Date(isoEnd + "T00:00:00");
+      return Math.round((b - a) / 86400000);
+    }
+
     function renderTimeline() {
       var createdText = task.createdAt ? Data.displayDate(task.createdAt) + " by " + creatorName(task.createdBy) : "—";
-      var estimatedText = task.date ? Data.displayDate(task.date) : "Not set";
+      var startText = task.startDate ? Data.displayDate(task.startDate) : "Not set";
+      var estimatedText = task.date ? Data.displayDate(task.date) + (task.durationDays ? " (" + task.durationDays + " day" + (task.durationDays === 1 ? "" : "s") + ")" : "") : "Not set";
       var completedText = task.completedAt ? Data.displayDate(task.completedAt) : "Not yet completed";
       document.getElementById("timelineStrip").innerHTML =
         '<div class="timeline-step"><span class="timeline-dot done"></span><div><strong>Created</strong><span>' + createdText + '</span></div></div>' +
+        '<div class="timeline-connector"></div>' +
+        '<div class="timeline-step"><span class="timeline-dot ' + (task.startDate ? "done" : "pending") + '"></span><div><strong>Start</strong><span>' + startText + '</span></div></div>' +
         '<div class="timeline-connector"></div>' +
         '<div class="timeline-step"><span class="timeline-dot ' + (task.date ? "done" : "pending") + '"></span><div><strong>Estimated Completion</strong><span>' + estimatedText + '</span></div></div>' +
         '<div class="timeline-connector"></div>' +
@@ -110,7 +149,9 @@
               '<div class="field-grid">' +
                 '<div class="field full"><label>Title</label><input type="text" id="tdTitle"></div>' +
                 '<div class="field"><label>Status</label><select id="tdStatus"></select></div>' +
+                '<div class="field"><label>Start Date</label><input type="date" id="tdStartDate"></div>' +
                 '<div class="field"><label>Estimated Completion</label><input type="date" id="tdDate"></div>' +
+                '<div class="field"><label>Duration (days)</label><input type="number" id="tdDuration" min="0" placeholder="e.g. 5"></div>' +
                 '<div class="field"><label>Completed On</label><input type="date" id="tdCompletedAt"></div>' +
                 '<div class="field full">' +
                   '<label>Assignee</label>' +
@@ -131,6 +172,7 @@
           '<div class="detail-card">' +
             '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("clock") + '</span>Activity</div>' +
             '<div id="activityFeed" style="padding:18px 20px"></div>' +
+            '<div class="panel-footer-row" style="justify-content:flex-end;padding:0 20px 18px" id="activityPager"></div>' +
           '</div>' +
           '<div class="detail-card" style="grid-column:1 / -1">' +
             '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("check") + '</span>Subtasks &amp; Progress</div>' +
@@ -138,6 +180,18 @@
               '<div id="taskProgressBar" style="margin-bottom:16px"></div>' +
               '<div class="checklist-box subtask-list" id="subtaskList"></div>' +
               (canUpdate ? '<div class="subtask-add-row"><input type="text" id="newSubtaskInput" placeholder="Add a subtask, then press Enter"><button type="button" class="btn btn-outline" id="addSubtaskBtn">+ Add</button></div>' : '') +
+            '</div>' +
+          '</div>' +
+          '<div class="detail-card" style="grid-column:1 / -1">' +
+            '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("box") + '</span>Materials Used<span class="field-hint" style="margin-left:auto">Drawn straight from the project\'s stock</span></div>' +
+            '<div style="padding:20px">' +
+              '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Quantity Used</th><th>Remaining in Stock</th>' + (canUpdate ? '<th></th>' : '') + '</tr></thead><tbody id="materialsUsedBody"></tbody></table></div>' +
+              (canUpdate ?
+              '<div class="inline-add-form" style="margin-top:14px">' +
+                '<div class="field" style="flex:1.4;min-width:200px"><label>Material</label><select id="muMaterial"></select></div>' +
+                '<div class="field"><label>Quantity Used</label><input type="number" id="muQty" min="0" step="0.01"></div>' +
+                '<button type="button" class="btn btn-outline" id="addMaterialUsedBtn">+ Record Usage</button>' +
+              '</div>' : '') +
             '</div>' +
           '</div>' +
         '</div>';
@@ -148,19 +202,48 @@
 
       document.getElementById("tdTitle").value = task.title;
       document.getElementById("tdAssignee").value = task.assignee || "";
+      document.getElementById("tdStartDate").value = task.startDate || "";
       document.getElementById("tdDate").value = task.date || "";
+      document.getElementById("tdDuration").value = task.durationDays || "";
       document.getElementById("tdCompletedAt").value = task.completedAt || "";
       document.getElementById("tdNotes").value = task.notes || "";
 
       var readOnly = !canUpdate;
-      ["tdTitle", "tdStatus", "tdAssignee", "tdDate", "tdCompletedAt", "tdNotes"].forEach(function (id) {
+      ["tdTitle", "tdStatus", "tdAssignee", "tdStartDate", "tdDate", "tdDuration", "tdCompletedAt", "tdNotes"].forEach(function (id) {
         document.getElementById(id).disabled = readOnly;
       });
+
+      var muMaterialSelect = document.getElementById("muMaterial");
+      if (muMaterialSelect) {
+        muMaterialSelect.innerHTML = Data.getMaterials().map(function (m) { return '<option value="' + m.id + '">' + m.name + ' (' + m.unit + ')</option>'; }).join("");
+      }
 
       renderActivity();
       renderSubtaskProgress();
       renderSubtaskList();
+      renderMaterialsUsed();
       wireEvents();
+    }
+
+    function renderMaterialsUsed() {
+      var body = document.getElementById("materialsUsedBody");
+      if (!body) return;
+      var lines = task.materialsUsed || [];
+      if (!lines.length) {
+        body.innerHTML = '<tr><td colspan="' + (canUpdate ? 4 : 3) + '"><div class="empty-state compact">' + App.svg("box") + '<p>No material usage recorded for this task yet.</p></div></td></tr>';
+        return;
+      }
+      var materials = Data.getMaterials();
+      body.innerHTML = lines.map(function (l) {
+        var m = materials.find(function (x) { return x.id === l.materialId; });
+        var balance = Business.getStockBalance(projectId, l.materialId).balance;
+        return '<tr>' +
+          '<td><strong>' + (m ? m.name : "—") + '</strong></td>' +
+          '<td>' + l.qty + ' ' + (m ? m.unit : "") + '</td>' +
+          '<td>' + balance + ' ' + (m ? m.unit : "") + '</td>' +
+          (canUpdate ? '<td><button class="action-trigger" data-material-used-del="' + l.id + '">' + App.svg("trash") + '</button></td>' : '') +
+        '</tr>';
+      }).join("");
     }
 
     function renderSubtaskProgress() {
@@ -238,27 +321,48 @@
       renderActivity();
     }
 
+    function materialsUsedSummary(t) {
+      var lines = t.materialsUsed || [];
+      if (!lines.length) return "";
+      var materials = Data.getMaterials();
+      return lines.map(function (l) {
+        var m = materials.find(function (x) { return x.id === l.materialId; });
+        return (m ? m.name : "Material") + " (" + l.qty + (m ? " " + m.unit : "") + ")";
+      }).join(", ");
+    }
+
     function completionDetailsHtml() {
-      return '<div class="field-group-divider">Completion Details</div>' +
+      return '<div class="field-group-divider" style="display:flex;justify-content:space-between;align-items:center">Completion Details' +
+          (canUpdate ? '<button type="button" class="action-trigger" id="tdEditCompletionBtn" title="Edit completion details">' + App.svg("edit") + '</button>' : '') +
+        '</div>' +
         '<div class="view-detail-grid">' +
           '<div class="view-detail-item"><span>Area</span><strong>' + (task.sqft || 0) + ' sqft</strong></div>' +
           '<div class="view-detail-item"><span>Cost</span><strong>₹' + (task.completionCost || 0) + '</strong></div>' +
           '<div class="view-detail-item"><span>No. of Persons</span><strong>' + (task.personsCount || 0) + '</strong></div>' +
           '<div class="view-detail-item"><span>Person in Charge</span><strong>' + (task.personInCharge || "—") + '</strong></div>' +
           '<div class="view-detail-item"><span>Duration</span><strong>' + (task.durationDays || 0) + ' day(s)</strong></div>' +
-          '<div class="view-detail-item"><span>Material Used</span><strong>' + (task.materialUsed || "—") + '</strong></div>' +
+          '<div class="view-detail-item"><span>Material Used</span><strong>' + (materialsUsedSummary(task) || "—") + '</strong></div>' +
         '</div>';
     }
+
+    var activityPage = 1;
+    var ACTIVITY_PAGE_SIZE = 8;
 
     function renderActivity() {
       var entries = Data.getTaskActivity().filter(function (a) { return a.taskId === taskId; })
         .sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : (a.id < b.id ? 1 : -1)); });
       var feedEl = document.getElementById("activityFeed");
-      feedEl.innerHTML = entries.length
-        ? '<div class="activity-list">' + entries.map(function (a) {
-            return '<div class="activity-item"><div class="activity-dot"></div><div><p>' + a.message + '</p><span>' + Data.displayDate(a.date) + '</span></div></div>';
-          }).join("") + '</div>'
-        : '<div class="empty-state compact">' + App.svg("clock") + '<p>No activity logged yet.</p></div>';
+      if (!entries.length) {
+        feedEl.innerHTML = '<div class="empty-state compact">' + App.svg("clock") + '<p>No activity logged yet.</p></div>';
+        document.getElementById("activityPager").innerHTML = "";
+        return;
+      }
+      var pg = App.paginate(entries, activityPage, ACTIVITY_PAGE_SIZE);
+      activityPage = pg.page;
+      feedEl.innerHTML = '<div class="activity-list">' + pg.pageItems.map(function (a) {
+        return '<div class="activity-item"><div class="activity-dot"></div><div><p>' + a.message + '</p><span>' + Data.displayDate(a.date) + '</span></div></div>';
+      }).join("") + '</div>';
+      App.renderPager(document.getElementById("activityPager"), activityPage, pg.totalPages, function (newPage) { activityPage = newPage; renderActivity(); });
     }
 
     function saveTaskPatch(patch) {
@@ -302,7 +406,8 @@
         if (existing) Data.saveExpenses(expenses.filter(function (e) { return e.id !== existing.id; }));
         return;
       }
-      var desc = "Task completed: " + t.title + (t.materialUsed ? " — Materials: " + t.materialUsed : "");
+      var materialsSummary = materialsUsedSummary(t);
+      var desc = "Task completed: " + t.title + (materialsSummary ? " — Materials: " + materialsSummary : "");
       if (existing) {
         existing.amount = cost;
         existing.description = desc;
@@ -338,7 +443,33 @@
         App.showToast("Status updated to " + statusMeta(task.status).label);
       });
       document.getElementById("tdAssignee").addEventListener("change", function () { saveTaskPatch({ assignee: this.value.trim() }); });
-      document.getElementById("tdDate").addEventListener("change", function () { saveTaskPatch({ date: this.value }); });
+      document.getElementById("tdStartDate").addEventListener("change", function () {
+        var newStart = this.value || null;
+        var patch = { startDate: newStart };
+        var anchor = newStart || task.createdAt;
+        if (anchor && task.durationDays) patch.date = isoAddDays(anchor, task.durationDays);
+        saveTaskPatch(patch);
+        renderTimeline();
+        document.getElementById("tdDate").value = task.date || "";
+      });
+      document.getElementById("tdDate").addEventListener("change", function () {
+        var newDate = this.value || null;
+        var patch = { date: newDate };
+        var anchor = task.startDate || task.createdAt;
+        if (newDate && anchor) patch.durationDays = Math.max(0, isoDaysBetween(anchor, newDate));
+        saveTaskPatch(patch);
+        renderTimeline();
+        document.getElementById("tdDuration").value = task.durationDays || "";
+      });
+      document.getElementById("tdDuration").addEventListener("change", function () {
+        var days = this.value === "" ? null : Number(this.value);
+        var patch = { durationDays: (days !== null && !isNaN(days)) ? days : null };
+        var anchor = task.startDate || task.createdAt;
+        if (patch.durationDays !== null && anchor) patch.date = isoAddDays(anchor, patch.durationDays);
+        saveTaskPatch(patch);
+        renderTimeline();
+        document.getElementById("tdDate").value = task.date || "";
+      });
       document.getElementById("tdCompletedAt").addEventListener("change", function () {
         var newDate = this.value || null;
         if (newDate && task.status !== "done") { openCompleteTaskModal(newDate); return; }
@@ -364,21 +495,27 @@
         window.location.href = "project-tasks.html?id=" + projectId;
       });
 
+      var editCompletionBtn = document.getElementById("tdEditCompletionBtn");
+      if (editCompletionBtn) editCompletionBtn.addEventListener("click", function () { openCompleteTaskModal(task.completedAt); });
+
       var subtaskListEl = document.getElementById("subtaskList");
       if (subtaskListEl) {
         subtaskListEl.addEventListener("change", function (e) {
           var cb = e.target.closest("[data-subtask-toggle]");
           if (!cb) return;
           var id = cb.getAttribute("data-subtask-toggle");
-          var subtasks = (task.subtasks || []).map(function (s) { return s.id === id ? Object.assign({}, s, { done: cb.checked }) : s; });
+          var st = (task.subtasks || []).find(function (s) { return s.id === id; });
+          if (!st) return;
+          if (cb.checked) {
+            openSubtaskCompleteModal(st, cb);
+            return;
+          }
+          var subtasks = (task.subtasks || []).map(function (s) { return s.id === id ? Object.assign({}, s, { done: false }) : s; });
           saveTaskPatch({ subtasks: subtasks });
-          var st = subtasks.find(function (s) { return s.id === id; });
-          Data.addTaskActivity(taskId, (st.done ? "Subtask completed: " : "Subtask reopened: ") + st.title);
+          Data.addTaskActivity(taskId, "Subtask reopened: " + st.title);
           renderSubtaskProgress();
           renderSubtaskList();
           renderActivity();
-          var allDone = subtasks.length > 0 && subtasks.every(function (s) { return s.done; });
-          if (allDone && task.status !== "done") openCompleteTaskModal();
         });
         subtaskListEl.addEventListener("click", function (e) {
           var editBtn = e.target.closest("[data-subtask-edit]");
@@ -401,21 +538,148 @@
       if (newSubtaskInputEl) newSubtaskInputEl.addEventListener("keydown", function (e) {
         if (e.key === "Enter") { e.preventDefault(); addSubtaskFromInput(); }
       });
+
+      var addMuBtn = document.getElementById("addMaterialUsedBtn");
+      if (addMuBtn) addMuBtn.addEventListener("click", function () {
+        var materialId = document.getElementById("muMaterial").value;
+        var qty = Number(document.getElementById("muQty").value);
+        if (!materialId || !qty) { App.showToast("Choose a material and enter a quantity", true); return; }
+        var mat = Data.getMaterials().find(function (m) { return m.id === materialId; });
+        var balance = Business.getStockBalance(projectId, materialId).balance;
+        if (qty > balance) { App.showToast("Only " + balance + " " + (mat ? mat.unit : "") + " available in stock", true); return; }
+        var txnId = Data.uid("st");
+        var txns = Data.getStockTransactions();
+        txns.push({
+          id: txnId, projectId: projectId, materialId: materialId, type: "outward",
+          quantity: qty, ratePerUnit: 0, totalAmount: 0, date: Data.isoDate(Data.today()),
+          supplierName: "", invoiceNumber: "", gstPercent: 0, gstAmount: 0,
+          notes: "Used for task: " + task.title, source: "task_usage", taskId: taskId
+        });
+        Data.saveStockTransactions(txns);
+        var materialsUsed = (task.materialsUsed || []).concat([{ id: txnId, materialId: materialId, qty: qty }]);
+        saveTaskPatch({ materialsUsed: materialsUsed });
+        Data.addTaskActivity(taskId, "Recorded material usage: " + qty + " " + (mat ? mat.unit : "") + " of " + (mat ? mat.name : "material"));
+        document.getElementById("muQty").value = "";
+        renderMaterialsUsed();
+        renderActivity();
+      });
+      var materialsUsedBodyEl = document.getElementById("materialsUsedBody");
+      if (materialsUsedBodyEl) materialsUsedBodyEl.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-material-used-del]");
+        if (!btn) return;
+        var id = btn.getAttribute("data-material-used-del");
+        Data.saveStockTransactions(Data.getStockTransactions().filter(function (t) { return t.id !== id; }));
+        var materialsUsed = (task.materialsUsed || []).filter(function (l) { return l.id !== id; });
+        saveTaskPatch({ materialsUsed: materialsUsed });
+        App.showToast("Usage removed — stock restored");
+        renderMaterialsUsed();
+        renderActivity();
+      });
     }
+
+    function subtaskCostTotals(t) {
+      var done = (t.subtasks || []).filter(function (s) { return s.done; });
+      return {
+        count: done.length,
+        area: done.reduce(function (s, x) { return s + (x.area || 0); }, 0),
+        cost: done.reduce(function (s, x) { return s + (x.cost || 0); }, 0)
+      };
+    }
+
+    var subtaskCompleteModal = document.getElementById("subtaskCompleteModal");
+    var pendingSubtaskCompleteId = null;
+    var pendingSubtaskCheckbox = null;
+    function recalcScCost() {
+      var area = Number(document.getElementById("scArea").value) || 0;
+      var rate = Number(document.getElementById("scRate").value) || 0;
+      document.getElementById("scCost").value = area && rate ? Math.round(area * rate) : "";
+    }
+    function openSubtaskCompleteModal(subtask, checkboxEl) {
+      pendingSubtaskCompleteId = subtask.id;
+      pendingSubtaskCheckbox = checkboxEl;
+      document.getElementById("subtaskCompleteName").textContent = subtask.title;
+      document.getElementById("subtaskCompleteForm").reset();
+      document.getElementById("scArea").value = subtask.area || "";
+      document.getElementById("scRate").value = subtask.ratePerUnit || "";
+      document.getElementById("scCost").value = subtask.cost || "";
+      subtaskCompleteModal.classList.add("show");
+    }
+    function closeSubtaskCompleteModal(revertCheckbox) {
+      if (revertCheckbox && pendingSubtaskCheckbox) pendingSubtaskCheckbox.checked = false;
+      pendingSubtaskCompleteId = null;
+      pendingSubtaskCheckbox = null;
+      subtaskCompleteModal.classList.remove("show");
+    }
+    document.getElementById("scArea").addEventListener("input", recalcScCost);
+    document.getElementById("scRate").addEventListener("input", recalcScCost);
+    document.getElementById("closeSubtaskCompleteModal").addEventListener("click", function () { closeSubtaskCompleteModal(true); });
+    document.getElementById("cancelSubtaskCompleteModal").addEventListener("click", function () { closeSubtaskCompleteModal(true); });
+    subtaskCompleteModal.addEventListener("click", function (e) { if (e.target === subtaskCompleteModal) closeSubtaskCompleteModal(true); });
+    document.getElementById("saveSubtaskCompleteBtn").addEventListener("click", function () {
+      if (!pendingSubtaskCompleteId) return;
+      var id = pendingSubtaskCompleteId;
+      var area = Number(document.getElementById("scArea").value) || 0;
+      var rate = Number(document.getElementById("scRate").value) || 0;
+      var cost = area && rate ? Math.round(area * rate) : 0;
+      var subtasks = (task.subtasks || []).map(function (s) {
+        return s.id === id ? Object.assign({}, s, { done: true, area: area || null, ratePerUnit: rate || null, cost: cost || null }) : s;
+      });
+      saveTaskPatch({ subtasks: subtasks });
+      var st = subtasks.find(function (s) { return s.id === id; });
+      Data.addTaskActivity(taskId, "Subtask completed: " + st.title + (cost ? " (₹" + cost.toLocaleString("en-IN") + ")" : ""));
+      subtaskCompleteModal.classList.remove("show");
+      pendingSubtaskCompleteId = null;
+      pendingSubtaskCheckbox = null;
+      renderSubtaskProgress();
+      renderSubtaskList();
+      renderActivity();
+      var allDone = subtasks.length > 0 && subtasks.every(function (s) { return s.done; });
+      if (allDone && task.status !== "done") openCompleteTaskModal();
+    });
 
     var completeTaskModal = document.getElementById("completeTaskModal");
     var pendingCompleteDate = null;
+    function recalcCtCost() {
+      var sqft = Number(document.getElementById("ctSqft").value) || 0;
+      var rate = Number(document.getElementById("ctRate").value) || 0;
+      document.getElementById("ctCost").value = sqft && rate ? Math.round(sqft * rate) : "";
+    }
     function openCompleteTaskModal(presetDate) {
       pendingCompleteDate = presetDate || null;
       document.getElementById("completeTaskForm").reset();
+      var editingDone = task.status === "done";
+      document.getElementById("completeTaskModalTitle").textContent = editingDone ? "Edit Completion Details" : "Complete Task";
+      document.getElementById("completeTaskModalSubtitle").textContent = editingDone
+        ? "Update the closing details already recorded for this task."
+        : "Capture a few closing details before marking this task done.";
+      document.getElementById("saveCompleteTaskBtn").textContent = editingDone ? "Save Changes" : "Mark Complete";
+      if (editingDone) {
+        if (task.sqft) document.getElementById("ctSqft").value = task.sqft;
+        if (task.completionCost) document.getElementById("ctCost").value = task.completionCost;
+        if (task.sqft && task.completionCost) document.getElementById("ctRate").value = Math.round((task.completionCost / task.sqft) * 100) / 100;
+        if (task.personsCount) document.getElementById("ctPersons").value = task.personsCount;
+        if (task.personInCharge) document.getElementById("ctInCharge").value = task.personInCharge;
+        if (task.durationDays) document.getElementById("ctDuration").value = task.durationDays;
+      } else {
+        if (task.durationDays) document.getElementById("ctDuration").value = task.durationDays;
+        if (task.sqft) document.getElementById("ctSqft").value = task.sqft;
+        var subtaskTotals = subtaskCostTotals(task);
+        if (subtaskTotals.count > 0) {
+          document.getElementById("ctSqft").value = subtaskTotals.area;
+          document.getElementById("ctCost").value = subtaskTotals.cost;
+        }
+      }
       completeTaskModal.classList.add("show");
     }
     function closeCompleteTaskModal() { pendingCompleteDate = null; completeTaskModal.classList.remove("show"); render(); }
     document.getElementById("closeCompleteTaskModal").addEventListener("click", closeCompleteTaskModal);
+    document.getElementById("ctSqft").addEventListener("input", recalcCtCost);
+    document.getElementById("ctRate").addEventListener("input", recalcCtCost);
     document.getElementById("cancelCompleteTaskModal").addEventListener("click", closeCompleteTaskModal);
     completeTaskModal.addEventListener("click", function (e) { if (e.target === completeTaskModal) closeCompleteTaskModal(); });
     document.getElementById("saveCompleteTaskBtn").addEventListener("click", function () {
       var today = Data.isoDate(Data.today());
+      var wasAlreadyDone = task.status === "done";
       saveTaskPatch({
         status: "done",
         completedAt: pendingCompleteDate || today,
@@ -423,13 +687,13 @@
         completionCost: Number(document.getElementById("ctCost").value) || 0,
         personsCount: Number(document.getElementById("ctPersons").value) || 0,
         personInCharge: document.getElementById("ctInCharge").value.trim(),
-        durationDays: Number(document.getElementById("ctDuration").value) || 0,
-        materialUsed: document.getElementById("ctMaterial").value.trim()
+        durationDays: Number(document.getElementById("ctDuration").value) || 0
       });
-      Data.addTaskActivity(taskId, "Task marked complete");
+      if (wasAlreadyDone) { syncCompletionReport(task); syncCompletionExpense(task); }
+      Data.addTaskActivity(taskId, wasAlreadyDone ? "Completion details updated" : "Task marked complete");
       pendingCompleteDate = null;
       completeTaskModal.classList.remove("show");
-      App.showToast("Task marked complete");
+      App.showToast(wasAlreadyDone ? "Completion details updated" : "Task marked complete");
       render();
     });
 

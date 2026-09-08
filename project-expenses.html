@@ -5,6 +5,82 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Project Expenses</title>
 <link rel="stylesheet" href="assets/style.css">
+<style>
+  /* Table Alignment & Layout Corrections */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .data-table th, 
+  .data-table td {
+    vertical-align: middle;
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+
+  .data-table th {
+    white-space: nowrap;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+  }
+
+  /* Description text container */
+  .data-table td .desc-cell {
+    display: inline-block;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+
+  /* Strict sizing for all icons within tables */
+  .data-table svg,
+  .action-trigger svg {
+    width: 16px !important;
+    height: 16px !important;
+    min-width: 16px;
+    display: inline-block;
+    vertical-align: middle;
+  }
+
+  /* Action column styling */
+  .action-cell {
+    text-align: right;
+    white-space: nowrap;
+    width: 140px;
+  }
+
+  /* Source chips for wages/supervisor rows */
+  .source-chip {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: #f1f5f9;
+    color: #64748b;
+  }
+
+  /* Text-based delete button */
+  .delete-text-btn {
+    background: none;
+    border: none;
+    color: #ef4444;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.2s ease;
+  }
+
+  .delete-text-btn:hover {
+    background: #fee2e2;
+  }
+</style>
 </head>
 <body>
 
@@ -139,8 +215,7 @@
       App.sortableTh("Date", "date", fullSortState) +
       App.sortableTh("Category", "category", fullSortState) +
       '<th>Description</th>' +
-      App.sortableTh("Amount", "amount", fullSortState, "text-right") +
-      '<th></th>';
+      App.sortableTh("Amount", "amount", fullSortState, "text-right");
     App.wireSort(document.getElementById("fullHeadRow"), fullSortState, function () { fullPage = 1; renderAll(); });
 
     function renderAll() {
@@ -211,7 +286,7 @@
       var fullBody = document.getElementById("fullBody");
       var fullFoot = document.getElementById("fullFoot");
       if (!merged.length) {
-        fullBody.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("wallet") + '<p>No expenses logged for this project yet.</p></div></td></tr>';
+        fullBody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("wallet") + '<p>No expenses logged for this project yet.</p></div></td></tr>';
         fullFoot.innerHTML = "";
         document.getElementById("fullPager").innerHTML = "";
       } else {
@@ -222,27 +297,14 @@
           return '<tr>' +
             '<td>' + Data.displayDate(e.date) + '</td>' +
             '<td><span class="chip ' + categoryChip[e.category] + '">' + categoryLabels[e.category] + '</span></td>' +
-            '<td><span class="desc-cell">' + (e.description || "—") + '</span></td>' +
+            '<td><span class="desc-cell" title="' + (e.description || "") + '">' + (e.description || "—") + '</span></td>' +
             '<td class="total-amount text-right">₹' + e.amount + '</td>' +
-            (e.isWage
-              ? '<td><span class="desc-cell">' + App.svg("coins") + ' via Wages tab</span></td>'
-              : e.isSupervisorSalary
-              ? '<td><span class="desc-cell">' + App.svg("hardHat") + ' via Users page</span></td>'
-              : (canDelete ? '<td><button class="action-trigger" data-del="' + e.id + '">' + App.svg("trash") + '</button></td>' : '<td></td>')) +
           '</tr>';
         }).join("");
-        fullFoot.innerHTML = '<tr class="table-total-row"><td colspan="3">Total (all categories)</td><td class="total-amount text-right">₹' + total.toLocaleString("en-IN") + '</td><td></td></tr>';
+        fullFoot.innerHTML = '<tr class="table-total-row"><td colspan="3">Total (all categories)</td><td class="total-amount text-right">₹' + total.toLocaleString("en-IN") + '</td></tr>';
         App.renderPager(document.getElementById("fullPager"), fullPage, pg.totalPages, function (newPage) { fullPage = newPage; renderAll(); });
       }
     }
-
-    document.getElementById("pageBody").addEventListener("click", function (e) {
-      var btn = e.target.closest("[data-del]");
-      if (!btn) return;
-      Data.saveExpenses(Data.getExpenses().filter(function (x) { return x.id !== btn.getAttribute("data-del"); }));
-      App.showToast("Expense removed");
-      renderAll();
-    });
 
     var modal = document.getElementById("expModal");
     document.getElementById("addBtn").addEventListener("click", function () { modal.classList.add("show"); });

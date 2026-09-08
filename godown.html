@@ -132,7 +132,7 @@
 <script src="assets/charts.js"></script>
 <script>
   App.requireAuth();
-  App.renderShell({ active: "materials", title: "Godown", subtitle: "Central material store" });
+  App.renderShell({ active: "godown", title: "Godown", subtitle: "Central material store" });
   App.guardPermission("stock", "read");
   var canEdit = App.can("stock", "update");
   var canDelete = App.can("stock", "delete");
