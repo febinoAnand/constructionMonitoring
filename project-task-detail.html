@@ -38,8 +38,8 @@
       <form id="completeTaskForm">
         <div class="field-grid">
           <div class="field"><label>Area (sqft)</label><input type="number" id="ctSqft" min="0"></div>
-          <div class="field"><label>Rate per unit (₹/sqft)</label><input type="number" id="ctRate" min="0"></div>
-          <div class="field"><label>Cost (₹) — auto</label><input type="number" id="ctCost" min="0" disabled></div>
+          <div class="field"><label>Cost (₹)</label><input type="number" id="ctCost" min="0"></div>
+          <div class="field"><label>Avg. Rate per unit (₹/sqft) — auto</label><input type="number" id="ctRate" min="0" disabled></div>
           <div class="field"><label>No. of Persons</label><input type="number" id="ctPersons" min="0"></div>
           <div class="field"><label>Person in Charge</label><input type="text" id="ctInCharge"></div>
           <div class="field"><label>Duration (days)</label><input type="number" id="ctDuration" min="0"></div>
@@ -57,16 +57,23 @@
 <div class="modal-overlay modal-overlay-stacked" id="subtaskCompleteModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Complete Subtask</h3><p id="subtaskCompleteName"></p></div>
+      <div><h3 id="subtaskCompleteModalTitle">Complete Subtask</h3><p id="subtaskCompleteName"></p></div>
       <button class="modal-close" id="closeSubtaskCompleteModal">&times;</button>
     </div>
     <div class="modal-body">
       <form id="subtaskCompleteForm">
         <div class="field-grid">
+          <div class="field full"><label>Title</label><input type="text" id="scTitle"></div>
           <div class="field"><label>Area (sqft)</label><input type="number" id="scArea" min="0"></div>
           <div class="field"><label>Rate per unit (₹/sqft)</label><input type="number" id="scRate" min="0"></div>
           <div class="field full"><label>Cost (₹) — auto</label><input type="number" id="scCost" min="0" disabled></div>
         </div>
+        <div class="field-group-divider">Materials Used</div>
+        <div class="subtask-material-lines">
+          <div class="subtask-material-head"><span>Material</span><span>Quantity</span><span></span></div>
+          <div id="scLineItems"></div>
+        </div>
+        <button type="button" class="btn btn-outline" id="scAddLineBtn" style="margin-top:10px">+ Add Material</button>
       </form>
     </div>
     <div class="modal-footer">
@@ -162,7 +169,7 @@
                 '</div>' +
                 '<div class="field full"><label>Description / Notes</label><textarea id="tdNotes" rows="5" placeholder="Add details, blockers, or context about this task..."></textarea></div>' +
               '</div>' +
-              (task.completedAt ? completionDetailsHtml() : "") +
+              '<div id="completionDetailsWrap">' + (task.completedAt ? completionDetailsHtml() : "") + '</div>' +
               (canDelete ?
               '<div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">' +
                 '<button type="button" class="btn btn-outline" id="tdDeleteTask" style="color:var(--danger);border-color:var(--danger);width:100%">' + App.svg("trash") + ' Delete Task</button>' +
@@ -177,16 +184,16 @@
           '<div class="detail-card" style="grid-column:1 / -1">' +
             '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("check") + '</span>Subtasks &amp; Progress</div>' +
             '<div style="padding:20px">' +
+              (canUpdate ? '<div class="subtask-add-row" style="margin:0 0 16px"><input type="text" id="newSubtaskInput" placeholder="Add a subtask, then press Enter"><button type="button" class="btn btn-outline" id="addSubtaskBtn">+ Add</button></div>' : '') +
               '<div id="taskProgressBar" style="margin-bottom:16px"></div>' +
               '<div id="subtaskCostSummary"></div>' +
               '<div class="table-scroll"><table class="data-table"><thead><tr><th></th><th>Subtask</th><th class="text-right">Area (sqft)</th><th class="text-right">Rate/unit (₹)</th><th class="text-right">Cost (₹)</th>' + (canUpdate ? '<th></th>' : '') + '</tr></thead><tbody id="subtaskList"></tbody></table></div>' +
-              (canUpdate ? '<div class="subtask-add-row"><input type="text" id="newSubtaskInput" placeholder="Add a subtask, then press Enter"><button type="button" class="btn btn-outline" id="addSubtaskBtn">+ Add</button></div>' : '') +
             '</div>' +
           '</div>' +
           '<div class="detail-card" style="grid-column:1 / -1">' +
             '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("box") + '</span>Materials Used<span class="field-hint" style="margin-left:auto">Drawn straight from the project\'s stock</span></div>' +
             '<div style="padding:20px">' +
-              '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Quantity Used</th><th>Remaining in Stock</th>' + (canUpdate ? '<th></th>' : '') + '</tr></thead><tbody id="materialsUsedBody"></tbody></table></div>' +
+              '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Subtask</th><th>Quantity Used</th><th>Remaining in Stock</th>' + (canUpdate ? '<th></th>' : '') + '</tr></thead><tbody id="materialsUsedBody"></tbody></table></div>' +
               (canUpdate ?
               '<div class="inline-add-form" style="margin-top:14px">' +
                 '<div class="field" style="flex:1.4;min-width:200px"><label>Material</label><select id="muMaterial"></select></div>' +
@@ -232,15 +239,17 @@
       if (!body) return;
       var lines = task.materialsUsed || [];
       if (!lines.length) {
-        body.innerHTML = '<tr><td colspan="' + (canUpdate ? 4 : 3) + '"><div class="empty-state compact">' + App.svg("box") + '<p>No material usage recorded for this task yet.</p></div></td></tr>';
+        body.innerHTML = '<tr><td colspan="' + (canUpdate ? 5 : 4) + '"><div class="empty-state compact">' + App.svg("box") + '<p>No material usage recorded for this task yet.</p></div></td></tr>';
         return;
       }
       var materials = Data.getMaterials();
       body.innerHTML = lines.map(function (l) {
         var m = materials.find(function (x) { return x.id === l.materialId; });
         var balance = Business.getStockBalance(projectId, l.materialId).balance;
+        var subtask = l.subtaskId ? (task.subtasks || []).find(function (s) { return s.id === l.subtaskId; }) : null;
         return '<tr>' +
           '<td><strong>' + (m ? m.name : "—") + '</strong></td>' +
+          '<td>' + (subtask ? subtask.title : "—") + '</td>' +
           '<td>' + l.qty + ' ' + (m ? m.unit : "") + '</td>' +
           '<td>' + balance + ' ' + (m ? m.unit : "") + '</td>' +
           (canUpdate ? '<td><button class="action-trigger" data-material-used-del="' + l.id + '">' + App.svg("trash") + '</button></td>' : '') +
@@ -286,7 +295,7 @@
     function renderSubtaskCostSummary() {
       var summaryEl = document.getElementById("subtaskCostSummary");
       if (!summaryEl) return;
-      var totals = subtaskCostTotals(task);
+      var totals = Business.getSubtaskCostTotals(task);
       if (!totals.count || (!totals.area && !totals.cost)) {
         summaryEl.innerHTML = "";
         return;
@@ -295,39 +304,6 @@
         '<div class="view-detail-item"><span>Area (from subtasks)</span><strong>' + totals.area + ' sqft</strong></div>' +
         '<div class="view-detail-item"><span>Cost (from subtasks)</span><strong>₹' + totals.cost.toLocaleString("en-IN") + '</strong></div>' +
       '</div>';
-    }
-
-    function editSubtaskInline(btn) {
-      var id = btn.getAttribute("data-subtask-edit");
-      var row = btn.closest(".subtask-table-row");
-      var titleSpan = row.querySelector(".subtask-title");
-      var currentTitle = titleSpan.textContent;
-      var input = document.createElement("input");
-      input.type = "text";
-      input.className = "subtask-edit-input";
-      input.value = currentTitle;
-      titleSpan.replaceWith(input);
-      input.focus();
-      input.select();
-
-      var committed = false;
-      function commit() {
-        if (committed) return;
-        committed = true;
-        var newTitle = input.value.trim();
-        if (newTitle && newTitle !== currentTitle) {
-          var subtasks = (task.subtasks || []).map(function (s) { return s.id === id ? Object.assign({}, s, { title: newTitle }) : s; });
-          saveTaskPatch({ subtasks: subtasks });
-          Data.addTaskActivity(taskId, 'Subtask renamed: "' + currentTitle + '" → "' + newTitle + '"');
-          renderActivity();
-        }
-        renderSubtaskList();
-      }
-      input.addEventListener("keydown", function (e) {
-        if (e.key === "Enter") { e.preventDefault(); commit(); }
-        else if (e.key === "Escape") { e.preventDefault(); committed = true; renderSubtaskList(); }
-      });
-      input.addEventListener("blur", commit);
     }
 
     function addSubtaskFromInput() {
@@ -342,6 +318,7 @@
       input.focus();
       renderSubtaskProgress();
       renderSubtaskCostSummary();
+      renderCompletionDetails();
       renderSubtaskList();
       renderActivity();
     }
@@ -360,25 +337,31 @@
        and the rate that falls out of them) over the task-level sqft/completionCost fields —
        those stay only as the fallback for tasks that were completed without any subtasks. */
     function completionDetailsHtml() {
-      var subtaskTotals = subtaskCostTotals(task);
-      var fromSubtasks = subtaskTotals.count > 0 && (subtaskTotals.area || subtaskTotals.cost);
-      var area = fromSubtasks ? subtaskTotals.area : (task.sqft || 0);
-      var cost = fromSubtasks ? subtaskTotals.cost : (task.completionCost || 0);
-      var rate = area && cost ? Math.round((cost / area) * 100) / 100 : 0;
-      var actualDuration = task.createdAt && task.completedAt ? Math.max(0, isoDaysBetween(task.createdAt, task.completedAt)) : null;
-      var duration = actualDuration !== null ? actualDuration : (task.durationDays || 0);
+      var sum = Business.getTaskCompletionSummary(task);
       return '<div class="field-group-divider" style="display:flex;justify-content:space-between;align-items:center">Completion Details' +
           (canUpdate ? '<button type="button" class="action-trigger" id="tdEditCompletionBtn" title="Edit completion details">' + App.svg("edit") + '</button>' : '') +
         '</div>' +
         '<div class="view-detail-grid">' +
-          '<div class="view-detail-item"><span>Area' + (fromSubtasks ? ' (from subtasks)' : '') + '</span><strong>' + area + ' sqft</strong></div>' +
-          '<div class="view-detail-item"><span>Cost' + (fromSubtasks ? ' (from subtasks)' : '') + '</span><strong>₹' + cost.toLocaleString("en-IN") + '</strong></div>' +
-          '<div class="view-detail-item"><span>Rate per unit</span><strong>' + (rate ? '₹' + rate.toLocaleString("en-IN") : '—') + '</strong></div>' +
-          '<div class="view-detail-item"><span>No. of Persons</span><strong>' + (task.personsCount || 0) + '</strong></div>' +
-          '<div class="view-detail-item"><span>Person in Charge</span><strong>' + (task.personInCharge || "—") + '</strong></div>' +
-          '<div class="view-detail-item"><span>Duration' + (actualDuration !== null ? ' (created → completed)' : '') + '</span><strong>' + duration + ' day(s)</strong></div>' +
+          '<div class="view-detail-item"><span>Area' + (sum.fromSubtasks ? ' (from subtasks)' : '') + '</span><strong>' + sum.area + ' sqft</strong></div>' +
+          '<div class="view-detail-item"><span>Cost' + (sum.fromSubtasks ? ' (from subtasks)' : '') + '</span><strong>₹' + sum.cost.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="view-detail-item"><span>Rate per unit</span><strong>' + (sum.rate ? '₹' + sum.rate.toLocaleString("en-IN") : '—') + '</strong></div>' +
+          '<div class="view-detail-item"><span>No. of Persons</span><strong>' + sum.personsCount + '</strong></div>' +
+          '<div class="view-detail-item"><span>Person in Charge</span><strong>' + (sum.personInCharge || "—") + '</strong></div>' +
+          '<div class="view-detail-item"><span>Duration' + (sum.isActualDuration ? ' (created → completed)' : '') + '</span><strong>' + sum.duration + ' day(s)</strong></div>' +
           '<div class="view-detail-item"><span>Material Used</span><strong>' + (materialsUsedSummary(task) || "—") + '</strong></div>' +
         '</div>';
+    }
+
+    /* Refreshes just the Completion Details block without a full page re-render — used
+       whenever a subtask's own area/cost/materials change, so the task-level completion
+       figures (which prefer live subtask totals via Business.getTaskCompletionSummary)
+       stay in sync instead of only updating the next time the whole page re-renders. */
+    function renderCompletionDetails() {
+      var wrap = document.getElementById("completionDetailsWrap");
+      if (!wrap) return;
+      wrap.innerHTML = task.completedAt ? completionDetailsHtml() : "";
+      var editBtn = document.getElementById("tdEditCompletionBtn");
+      if (editBtn) editBtn.addEventListener("click", function () { openCompleteTaskModal(task.completedAt); });
     }
 
     var activityPage = 1;
@@ -417,14 +400,14 @@
     function syncCompletionReport(t) {
       var reports = Data.getWorkReports();
       var existing = reports.find(function (r) { return r.taskId === t.id && r.source === "task_complete"; });
-      var today = Data.isoDate(Data.today());
+      var reportDate = t.completedAt || Data.isoDate(Data.today());
       if (existing) {
-        existing.date = today;
+        existing.date = reportDate;
         existing.title = t.title;
         existing.description = "Task completed: " + t.title + (t.assignee ? " (" + t.assignee + ")" : "") + ".";
       } else {
         reports.push({
-          id: Data.uid("wr"), projectId: projectId, date: today, title: t.title,
+          id: Data.uid("wr"), projectId: projectId, date: reportDate, title: t.title,
           description: "Task completed: " + t.title + (t.assignee ? " (" + t.assignee + ")" : "") + ".",
           source: "task_complete", taskId: t.id
         });
@@ -551,12 +534,18 @@
           Data.addTaskActivity(taskId, "Subtask reopened: " + st.title);
           renderSubtaskProgress();
           renderSubtaskCostSummary();
+          renderCompletionDetails();
           renderSubtaskList();
           renderActivity();
         });
         subtaskListEl.addEventListener("click", function (e) {
           var editBtn = e.target.closest("[data-subtask-edit]");
-          if (editBtn) { editSubtaskInline(editBtn); return; }
+          if (editBtn) {
+            var editId = editBtn.getAttribute("data-subtask-edit");
+            var editSubtask = (task.subtasks || []).find(function (s) { return s.id === editId; });
+            if (editSubtask) openSubtaskEditModal(editSubtask);
+            return;
+          }
           var btn = e.target.closest("[data-subtask-del]");
           if (!btn) return;
           var id = btn.getAttribute("data-subtask-del");
@@ -566,6 +555,7 @@
           if (removed) Data.addTaskActivity(taskId, "Subtask removed: " + removed.title);
           renderSubtaskProgress();
           renderSubtaskCostSummary();
+          renderCompletionDetails();
           renderSubtaskList();
           renderActivity();
         });
@@ -615,37 +605,76 @@
       });
     }
 
-    function subtaskCostTotals(t) {
-      var done = (t.subtasks || []).filter(function (s) { return s.done; });
-      return {
-        count: done.length,
-        area: done.reduce(function (s, x) { return s + (x.area || 0); }, 0),
-        cost: done.reduce(function (s, x) { return s + (x.cost || 0); }, 0)
-      };
-    }
-
     var subtaskCompleteModal = document.getElementById("subtaskCompleteModal");
     var pendingSubtaskCompleteId = null;
     var pendingSubtaskCheckbox = null;
+    var pendingSubtaskMode = null; // "complete" (via checkbox) or "edit" (via edit icon)
     function recalcScCost() {
       var area = Number(document.getElementById("scArea").value) || 0;
       var rate = Number(document.getElementById("scRate").value) || 0;
       document.getElementById("scCost").value = area && rate ? Math.round(area * rate) : "";
     }
-    function openSubtaskCompleteModal(subtask, checkboxEl) {
-      pendingSubtaskCompleteId = subtask.id;
-      pendingSubtaskCheckbox = checkboxEl;
-      document.getElementById("subtaskCompleteName").textContent = subtask.title;
-      document.getElementById("subtaskCompleteForm").reset();
+    /* Multi-material line builder for a subtask's material usage — same material+qty pattern
+       as the Godown bill-line builder, minus rate/amount since subtask usage isn't billed. */
+    function addScMaterialLine(materialId, qty) {
+      var matOptions = '<option value="">Choose material…</option>' + Data.getMaterials().map(function (m) {
+        return '<option value="' + m.id + '">' + m.name + ' (' + m.unit + ')</option>';
+      }).join("");
+      var row = document.createElement("div");
+      row.className = "subtask-material-row";
+      row.innerHTML =
+        '<select class="scm-material">' + matOptions + '</select>' +
+        '<input type="number" class="scm-qty" min="0" step="0.01" placeholder="0">' +
+        '<button type="button" class="action-trigger scm-remove" title="Remove">' + App.svg("trash") + '</button>';
+      document.getElementById("scLineItems").appendChild(row);
+      if (materialId) row.querySelector(".scm-material").value = materialId;
+      if (qty) row.querySelector(".scm-qty").value = qty;
+      row.querySelector(".scm-remove").addEventListener("click", function () { row.remove(); });
+    }
+    /* Prefills the line builder with whichever materials this subtask already has recorded
+       (looked up by subtaskId on the task's materialsUsed lines), or one blank line if none. */
+    function resetScMaterialLines(subtaskId) {
+      document.getElementById("scLineItems").innerHTML = "";
+      var existing = (task.materialsUsed || []).filter(function (l) { return l.subtaskId === subtaskId; });
+      if (existing.length) existing.forEach(function (l) { addScMaterialLine(l.materialId, l.qty); });
+      else addScMaterialLine();
+    }
+    document.getElementById("scAddLineBtn").addEventListener("click", function () { addScMaterialLine(); });
+    /* Shared prefill for both flows: Title, Area, Rate, Cost, and the material lines. */
+    function fillSubtaskModal(subtask) {
+      document.getElementById("scTitle").value = subtask.title;
       document.getElementById("scArea").value = subtask.area || "";
       document.getElementById("scRate").value = subtask.ratePerUnit || "";
       document.getElementById("scCost").value = subtask.cost || "";
+      resetScMaterialLines(subtask.id);
+    }
+    function openSubtaskCompleteModal(subtask, checkboxEl) {
+      pendingSubtaskMode = "complete";
+      pendingSubtaskCompleteId = subtask.id;
+      pendingSubtaskCheckbox = checkboxEl;
+      document.getElementById("subtaskCompleteModalTitle").textContent = "Complete Subtask";
+      document.getElementById("subtaskCompleteName").textContent = "Add the finishing details for this subtask.";
+      document.getElementById("subtaskCompleteForm").reset();
+      document.getElementById("saveSubtaskCompleteBtn").textContent = "Mark Complete";
+      fillSubtaskModal(subtask);
+      subtaskCompleteModal.classList.add("show");
+    }
+    function openSubtaskEditModal(subtask) {
+      pendingSubtaskMode = "edit";
+      pendingSubtaskCompleteId = subtask.id;
+      pendingSubtaskCheckbox = null;
+      document.getElementById("subtaskCompleteModalTitle").textContent = "Edit Subtask";
+      document.getElementById("subtaskCompleteName").textContent = "Update this subtask's title, area, cost, and material used.";
+      document.getElementById("subtaskCompleteForm").reset();
+      document.getElementById("saveSubtaskCompleteBtn").textContent = "Save Changes";
+      fillSubtaskModal(subtask);
       subtaskCompleteModal.classList.add("show");
     }
     function closeSubtaskCompleteModal(revertCheckbox) {
       if (revertCheckbox && pendingSubtaskCheckbox) pendingSubtaskCheckbox.checked = false;
       pendingSubtaskCompleteId = null;
       pendingSubtaskCheckbox = null;
+      pendingSubtaskMode = null;
       subtaskCompleteModal.classList.remove("show");
     }
     document.getElementById("scArea").addEventListener("input", recalcScCost);
@@ -656,32 +685,100 @@
     document.getElementById("saveSubtaskCompleteBtn").addEventListener("click", function () {
       if (!pendingSubtaskCompleteId) return;
       var id = pendingSubtaskCompleteId;
+      var mode = pendingSubtaskMode;
+      var newTitle = document.getElementById("scTitle").value.trim();
       var area = Number(document.getElementById("scArea").value) || 0;
       var rate = Number(document.getElementById("scRate").value) || 0;
       var cost = area && rate ? Math.round(area * rate) : 0;
+
+      // Gather material lines from the builder, aggregating duplicate materials picked across rows.
+      var requested = {};
+      document.querySelectorAll("#scLineItems .subtask-material-row").forEach(function (row) {
+        var mid = row.querySelector(".scm-material").value;
+        var qty = Number(row.querySelector(".scm-qty").value) || 0;
+        if (!mid || !qty) return;
+        requested[mid] = (requested[mid] || 0) + qty;
+      });
+      var existingLines = (task.materialsUsed || []).filter(function (l) { return l.subtaskId === id; });
+      var existingByMaterial = {};
+      existingLines.forEach(function (l) { existingByMaterial[l.materialId] = (existingByMaterial[l.materialId] || 0) + l.qty; });
+
+      // Validate stock for every requested material before changing anything.
+      for (var reqMaterialId in requested) {
+        var reqBalance = Business.getStockBalance(projectId, reqMaterialId).balance + (existingByMaterial[reqMaterialId] || 0);
+        if (requested[reqMaterialId] > reqBalance) {
+          var reqMat = Data.getMaterials().find(function (m) { return m.id === reqMaterialId; });
+          App.showToast("Only " + reqBalance + " " + (reqMat ? reqMat.unit : "") + " of " + (reqMat ? reqMat.name : "material") + " available in stock", true);
+          return;
+        }
+      }
+
+      var oldSubtask = (task.subtasks || []).find(function (s) { return s.id === id; });
+      var titleToUse = newTitle || (oldSubtask ? oldSubtask.title : "Subtask");
       var subtasks = (task.subtasks || []).map(function (s) {
-        return s.id === id ? Object.assign({}, s, { done: true, area: area || null, ratePerUnit: rate || null, cost: cost || null }) : s;
+        if (s.id !== id) return s;
+        var patch = { title: titleToUse, area: area || null, ratePerUnit: rate || null, cost: cost || null };
+        if (mode === "complete") patch.done = true;
+        return Object.assign({}, s, patch);
       });
       saveTaskPatch({ subtasks: subtasks });
       var st = subtasks.find(function (s) { return s.id === id; });
-      Data.addTaskActivity(taskId, "Subtask completed: " + st.title + (cost ? " (₹" + cost.toLocaleString("en-IN") + ")" : ""));
+      Data.addTaskActivity(taskId, mode === "complete"
+        ? "Subtask completed: " + st.title + (cost ? " (₹" + cost.toLocaleString("en-IN") + ")" : "")
+        : "Subtask updated: " + st.title);
+
+      /* Replace this subtask's material reservations entirely: drop its old stock transactions,
+         then record the current set of material/quantity lines as fresh ones. */
+      if (existingLines.length) {
+        var removeIds = existingLines.map(function (l) { return l.id; });
+        Data.saveStockTransactions(Data.getStockTransactions().filter(function (t) { return removeIds.indexOf(t.id) === -1; }));
+      }
+      var materialsUsed = (task.materialsUsed || []).filter(function (l) { return l.subtaskId !== id; });
+      var newLines = [];
+      var txns = Data.getStockTransactions();
+      Object.keys(requested).forEach(function (materialId) {
+        var qty = requested[materialId];
+        var mat = Data.getMaterials().find(function (m) { return m.id === materialId; });
+        var txnId = Data.uid("st");
+        txns.push({
+          id: txnId, projectId: projectId, materialId: materialId, type: "outward",
+          quantity: qty, ratePerUnit: 0, totalAmount: 0, date: Data.isoDate(Data.today()),
+          supplierName: "", invoiceNumber: "", gstPercent: 0, gstAmount: 0,
+          notes: "Used for subtask: " + st.title, source: "task_usage", taskId: taskId, subtaskId: id
+        });
+        newLines.push({ id: txnId, materialId: materialId, qty: qty, subtaskId: id });
+        Data.addTaskActivity(taskId, "Recorded material usage: " + qty + " " + (mat ? mat.unit : "") + " of " + (mat ? mat.name : "material") + " (subtask: " + st.title + ")");
+      });
+      if (newLines.length) Data.saveStockTransactions(txns);
+      materialsUsed = materialsUsed.concat(newLines);
+      if (newLines.length || existingLines.length) {
+        saveTaskPatch({ materialsUsed: materialsUsed });
+        if (!newLines.length && existingLines.length) Data.addTaskActivity(taskId, "Removed material usage for subtask: " + st.title);
+        renderMaterialsUsed();
+      }
+
       subtaskCompleteModal.classList.remove("show");
       pendingSubtaskCompleteId = null;
       pendingSubtaskCheckbox = null;
+      pendingSubtaskMode = null;
       renderSubtaskProgress();
       renderSubtaskCostSummary();
+      renderCompletionDetails();
       renderSubtaskList();
       renderActivity();
       var allDone = subtasks.length > 0 && subtasks.every(function (s) { return s.done; });
-      if (allDone && task.status !== "done") openCompleteTaskModal();
+      if (mode === "complete" && allDone && task.status !== "done") openCompleteTaskModal();
     });
 
     var completeTaskModal = document.getElementById("completeTaskModal");
     var pendingCompleteDate = null;
-    function recalcCtCost() {
+    /* At task level Area and Cost are the known inputs (often summed straight from
+       completed subtasks), so the average Rate per unit is the derived/auto field here —
+       the opposite direction from the Subtask modal, where Area x Rate = Cost. */
+    function recalcCtRate() {
       var sqft = Number(document.getElementById("ctSqft").value) || 0;
-      var rate = Number(document.getElementById("ctRate").value) || 0;
-      document.getElementById("ctCost").value = sqft && rate ? Math.round(sqft * rate) : "";
+      var cost = Number(document.getElementById("ctCost").value) || 0;
+      document.getElementById("ctRate").value = sqft && cost ? Math.round((cost / sqft) * 100) / 100 : "";
     }
     function openCompleteTaskModal(presetDate) {
       pendingCompleteDate = presetDate || null;
@@ -693,27 +790,32 @@
         : "Capture a few closing details before marking this task done.";
       document.getElementById("saveCompleteTaskBtn").textContent = editingDone ? "Save Changes" : "Mark Complete";
       if (editingDone) {
-        if (task.sqft) document.getElementById("ctSqft").value = task.sqft;
-        if (task.completionCost) document.getElementById("ctCost").value = task.completionCost;
-        if (task.sqft && task.completionCost) document.getElementById("ctRate").value = Math.round((task.completionCost / task.sqft) * 100) / 100;
+        /* Prefill from the same live summary the Completion Details table shows (which prefers
+           subtask totals and the actual created->completed span) instead of the raw stored
+           task.sqft/completionCost/durationDays — otherwise this modal could open showing
+           stale figures that don't match what's currently on screen. */
+        var sum = Business.getTaskCompletionSummary(task);
+        if (sum.area) document.getElementById("ctSqft").value = sum.area;
+        if (sum.cost) document.getElementById("ctCost").value = sum.cost;
         if (task.personsCount) document.getElementById("ctPersons").value = task.personsCount;
         if (task.personInCharge) document.getElementById("ctInCharge").value = task.personInCharge;
-        if (task.durationDays) document.getElementById("ctDuration").value = task.durationDays;
+        if (sum.duration) document.getElementById("ctDuration").value = sum.duration;
       } else {
         if (task.durationDays) document.getElementById("ctDuration").value = task.durationDays;
         if (task.sqft) document.getElementById("ctSqft").value = task.sqft;
-        var subtaskTotals = subtaskCostTotals(task);
+        var subtaskTotals = Business.getSubtaskCostTotals(task);
         if (subtaskTotals.count > 0) {
           document.getElementById("ctSqft").value = subtaskTotals.area;
           document.getElementById("ctCost").value = subtaskTotals.cost;
         }
       }
+      recalcCtRate();
       completeTaskModal.classList.add("show");
     }
     function closeCompleteTaskModal() { pendingCompleteDate = null; completeTaskModal.classList.remove("show"); render(); }
     document.getElementById("closeCompleteTaskModal").addEventListener("click", closeCompleteTaskModal);
-    document.getElementById("ctSqft").addEventListener("input", recalcCtCost);
-    document.getElementById("ctRate").addEventListener("input", recalcCtCost);
+    document.getElementById("ctSqft").addEventListener("input", recalcCtRate);
+    document.getElementById("ctCost").addEventListener("input", recalcCtRate);
     document.getElementById("cancelCompleteTaskModal").addEventListener("click", closeCompleteTaskModal);
     completeTaskModal.addEventListener("click", function (e) { if (e.target === completeTaskModal) closeCompleteTaskModal(); });
     document.getElementById("saveCompleteTaskBtn").addEventListener("click", function () {

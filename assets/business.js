@@ -78,6 +78,20 @@
     return getSupervisorsForProject(projectId).reduce(function (sum, u) { return sum + (u.monthlySalary || 0); }, 0);
   }
 
+  /* Every user assigned to a project (any role) — the pool the Salary tab can pay,
+     mirroring how the Add/Edit Project popup's "User(s)" picker assigns them. */
+  function getUsersAssignedToProject(projectId) {
+    return window.Data.getUsers().filter(function (u) {
+      return (u.assignedProjectIds || []).indexOf(projectId) !== -1;
+    });
+  }
+
+  function getSalaryPaidTotal(userId, projectId) {
+    return window.Data.getSalaryPayments()
+      .filter(function (p) { return p.userId === userId && (!projectId || p.projectId === projectId); })
+      .reduce(function (sum, p) { return sum + p.amount; }, 0);
+  }
+
   /* Cash-basis project cost = inward stock spend + wages actually paid out + supervisor
      salary + other expenses. Deliberately excludes wages *owed* (accrued but unpaid) to
      avoid double-counting — that figure is surfaced separately via getWageSummary. */
@@ -247,6 +261,44 @@
     return { percent: percent, doneCount: 0, totalCount: 0 };
   }
 
+  /* Rolled-up totals from a task's completed subtasks: total area, cost, and how many are
+     done. Used to prefer subtask totals over the task-level sqft/completionCost fields. */
+  function getSubtaskCostTotals(task) {
+    var done = (task.subtasks || []).filter(function (s) { return s.done; });
+    return {
+      count: done.length,
+      area: done.reduce(function (s, x) { return s + (x.area || 0); }, 0),
+      cost: done.reduce(function (s, x) { return s + (x.cost || 0); }, 0)
+    };
+  }
+
+  function isoDaysBetween(isoStart, isoEnd) {
+    var a = new Date(isoStart + "T00:00:00");
+    var b = new Date(isoEnd + "T00:00:00");
+    return Math.round((b - a) / 86400000);
+  }
+
+  /* Full completion summary for a task — area/cost/rate prefer the rolled-up totals from its
+     completed subtasks, falling back to the task-level sqft/completionCost fields for tasks
+     completed without subtasks. Duration is the actual created->completed span when both dates
+     are known, otherwise the planned durationDays. Shared by the task detail page and the
+     Reports page so both show the exact same numbers for a completed task. */
+  function getTaskCompletionSummary(task) {
+    var subtaskTotals = getSubtaskCostTotals(task);
+    var fromSubtasks = subtaskTotals.count > 0 && (subtaskTotals.area || subtaskTotals.cost);
+    var area = fromSubtasks ? subtaskTotals.area : (task.sqft || 0);
+    var cost = fromSubtasks ? subtaskTotals.cost : (task.completionCost || 0);
+    var rate = area && cost ? Math.round((cost / area) * 100) / 100 : 0;
+    var actualDuration = task.createdAt && task.completedAt ? Math.max(0, isoDaysBetween(task.createdAt, task.completedAt)) : null;
+    var duration = actualDuration !== null ? actualDuration : (task.durationDays || 0);
+    return {
+      area: area, cost: cost, rate: rate, fromSubtasks: fromSubtasks,
+      duration: duration, isActualDuration: actualDuration !== null,
+      personsCount: task.personsCount || 0, personInCharge: task.personInCharge || "",
+      subtaskTotals: subtaskTotals
+    };
+  }
+
   function getWagesDueTotal(projectId) {
     var labourers = window.Data.getLabourers();
     var total = 0;
@@ -272,6 +324,10 @@
     getProjectStatusColumns: getProjectStatusColumns,
     getSupervisorsForProject: getSupervisorsForProject,
     getSupervisorSalaryTotal: getSupervisorSalaryTotal,
-    getTaskProgress: getTaskProgress
+    getUsersAssignedToProject: getUsersAssignedToProject,
+    getSalaryPaidTotal: getSalaryPaidTotal,
+    getTaskProgress: getTaskProgress,
+    getSubtaskCostTotals: getSubtaskCostTotals,
+    getTaskCompletionSummary: getTaskCompletionSummary
   };
 })();

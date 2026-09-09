@@ -29,7 +29,7 @@
 <div class="modal-overlay" id="downloadModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Download Work Reports</h3><p>Choose a file format and date range to export.</p></div>
+      <div><h3>Download Work Reports</h3><p id="downloadModalSubtitle">Choose a file format to export.</p></div>
       <button class="modal-close" id="closeDownloadModal">&times;</button>
     </div>
     <div class="modal-body">
@@ -43,14 +43,26 @@
             </div>
             <input type="hidden" id="dlFormat" value="pdf">
           </div>
-          <div class="field"><label>From Date</label><input type="date" id="dlFrom"></div>
-          <div class="field"><label>To Date</label><input type="date" id="dlTo"></div>
         </div>
       </form>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" id="cancelDownloadModal">Cancel</button>
       <button class="btn btn-primary" id="confirmDownloadBtn">Download</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="reportTaskModal">
+  <div class="modal-box wide">
+    <div class="modal-header">
+      <div><h3 id="reportTaskModalTitle">Task Details</h3><p id="reportTaskModalSubtitle"></p></div>
+      <button class="modal-close" id="closeReportTaskModal">&times;</button>
+    </div>
+    <div class="modal-body" id="reportTaskModalBody"></div>
+    <div class="modal-footer">
+      <a class="btn btn-outline" id="reportTaskOpenLink" href="#">Open Task Page</a>
+      <button class="btn btn-primary" id="closeReportTaskModalBtn">Close</button>
     </div>
   </div>
 </div>
@@ -96,14 +108,21 @@
     document.getElementById("repHeadRow").innerHTML =
       App.sortableTh("Date", "date", repSortState) +
       App.sortableTh("Title", "title", repSortState) +
-      '<th>Source</th>' +
       '<th>Description</th>' +
       '<th></th>';
     App.wireSort(document.getElementById("repHeadRow"), repSortState, function () { repPage = 1; renderReports(); });
 
     function renderReports() {
+      var tasks = Data.getTasks();
       var reports = Data.getWorkReports().filter(function (r) {
         if (r.projectId !== projectId) return false;
+        /* This page shows only reports for tasks that are actually complete — auto-generated
+           on task completion, and hidden again if that task gets reopened or deleted. */
+        if (r.source !== "task_complete") return false;
+        if (r.taskId) {
+          var t = tasks.find(function (x) { return x.id === r.taskId; });
+          if (!t || t.status !== "done") return false;
+        }
         if (repFrom && r.date < repFrom) return false;
         if (repTo && r.date > repTo) return false;
         return true;
@@ -113,7 +132,7 @@
       document.getElementById("repCount").textContent = reports.length + (reports.length === 1 ? " report" : " reports");
 
       if (!reports.length) {
-        body.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("fileText") + '<p>' + (repFrom || repTo ? "No work reports in this date range." : "No work reports logged yet.") + '</p></div></td></tr>';
+        body.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("fileText") + '<p>' + (repFrom || repTo ? "No work reports in this date range." : "No work reports logged yet.") + '</p></div></td></tr>';
         document.getElementById("repPager").innerHTML = "";
         return;
       }
@@ -123,16 +142,15 @@
       repPage = pg.page;
 
       body.innerHTML = pg.pageItems.map(function (r) {
-        var isAuto = r.source === "task_complete";
-        var sourceChip = isAuto
-          ? '<span class="chip chip-green">' + App.svg("check") + ' Auto</span>'
-          : '<span class="chip chip-slate">Manual</span>';
+        var hasTask = !!r.taskId;
         return '<tr>' +
           '<td>' + Data.displayDate(r.date) + '</td>' +
           '<td><strong>' + (r.title || "Work Report") + '</strong></td>' +
-          '<td>' + sourceChip + '</td>' +
           '<td><span class="desc-cell">' + r.description + '</span></td>' +
-          (canDelete ? '<td><button class="action-trigger" data-del="' + r.id + '">' + App.svg("trash") + '</button></td>' : '<td></td>') +
+          '<td style="white-space:nowrap">' +
+            (hasTask ? '<button class="btn btn-outline" data-view-report-task="' + r.taskId + '" style="padding:5px 12px;font-size:12px">View Details</button> ' : '') +
+            (canDelete ? '<button class="action-trigger" data-del="' + r.id + '">' + App.svg("trash") + '</button>' : '') +
+          '</td>' +
         '</tr>';
       }).join("");
 
@@ -140,12 +158,76 @@
     }
 
     document.getElementById("repBody").addEventListener("click", function (e) {
+      var viewBtn = e.target.closest("[data-view-report-task]");
+      if (viewBtn) { openReportTaskModal(viewBtn.getAttribute("data-view-report-task")); return; }
       var btn = e.target.closest("[data-del]");
       if (!btn) return;
       Data.saveWorkReports(Data.getWorkReports().filter(function (r) { return r.id !== btn.getAttribute("data-del"); }));
       App.showToast("Report removed");
       renderReports();
     });
+
+    /* Full task detail popup for an auto-generated ("Task completed: ...") report row —
+       pulls the live task record so it always reflects the task's current subtasks,
+       completion figures and materials, not just the short summary line stored on the report. */
+    function statusPillClass(key) { return key === "done" ? "delivered" : key === "todo" ? "pending" : "confirmed"; }
+    function statusMeta(key) {
+      var col = Business.getProjectStatusColumns(projectId).find(function (s) { return s.key === key; });
+      return col || { key: key, label: key };
+    }
+    function materialsUsedSummary(t) {
+      var lines = t.materialsUsed || [];
+      if (!lines.length) return "";
+      var materials = Data.getMaterials();
+      return lines.map(function (l) {
+        var m = materials.find(function (x) { return x.id === l.materialId; });
+        return (m ? m.name : "Material") + " (" + l.qty + (m ? " " + m.unit : "") + ")";
+      }).join(", ");
+    }
+
+    var reportTaskModal = document.getElementById("reportTaskModal");
+    function openReportTaskModal(taskId) {
+      var task = Data.getTasks().find(function (t) { return t.id === taskId; });
+      if (!task) { App.showToast("This task no longer exists", true); return; }
+      var sum = Business.getTaskCompletionSummary(task);
+      document.getElementById("reportTaskModalTitle").textContent = task.title;
+      document.getElementById("reportTaskModalSubtitle").innerHTML =
+        '<span class="status-pill ' + statusPillClass(task.status) + '">' + statusMeta(task.status).label + '</span>' +
+        ' &nbsp; Completed ' + (task.completedAt ? Data.displayDate(task.completedAt) : "—") +
+        (task.assignee ? ' &nbsp; · &nbsp; ' + task.assignee : '');
+      document.getElementById("reportTaskOpenLink").href = "project-task-detail.html?id=" + projectId + "&task=" + task.id;
+
+      var subtasks = task.subtasks || [];
+      var subtaskRows = !subtasks.length
+        ? '<tr><td colspan="4"><div class="empty-state compact" style="padding:10px"><p>No subtasks on this task.</p></div></td></tr>'
+        : subtasks.map(function (s) {
+            return '<tr>' +
+              '<td><span class="subtask-title' + (s.done ? ' done' : '') + '">' + s.title + '</span></td>' +
+              '<td class="text-right">' + (s.area ? s.area : '—') + '</td>' +
+              '<td class="text-right">' + (s.ratePerUnit ? '₹' + s.ratePerUnit : '—') + '</td>' +
+              '<td class="total-amount text-right">' + (s.cost ? '₹' + s.cost.toLocaleString("en-IN") : '—') + '</td>' +
+            '</tr>';
+          }).join("");
+
+      document.getElementById("reportTaskModalBody").innerHTML =
+        '<div class="view-detail-grid">' +
+          '<div class="view-detail-item"><span>Area' + (sum.fromSubtasks ? ' (from subtasks)' : '') + '</span><strong>' + sum.area + ' sqft</strong></div>' +
+          '<div class="view-detail-item"><span>Cost' + (sum.fromSubtasks ? ' (from subtasks)' : '') + '</span><strong>₹' + sum.cost.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="view-detail-item"><span>Rate per unit</span><strong>' + (sum.rate ? '₹' + sum.rate.toLocaleString("en-IN") : '—') + '</strong></div>' +
+          '<div class="view-detail-item"><span>No. of Persons</span><strong>' + sum.personsCount + '</strong></div>' +
+          '<div class="view-detail-item"><span>Person in Charge</span><strong>' + (sum.personInCharge || "—") + '</strong></div>' +
+          '<div class="view-detail-item"><span>Duration' + (sum.isActualDuration ? ' (created → completed)' : '') + '</span><strong>' + sum.duration + ' day(s)</strong></div>' +
+          '<div class="view-detail-item"><span>Material Used</span><strong>' + (materialsUsedSummary(task) || "—") + '</strong></div>' +
+        '</div>' +
+        '<div class="field-group-divider">Subtasks</div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th>Subtask</th><th class="text-right">Area (sqft)</th><th class="text-right">Rate/unit (₹)</th><th class="text-right">Cost (₹)</th></tr></thead><tbody>' + subtaskRows + '</tbody></table></div>';
+
+      reportTaskModal.classList.add("show");
+    }
+    function closeReportTaskModal() { reportTaskModal.classList.remove("show"); }
+    document.getElementById("closeReportTaskModal").addEventListener("click", closeReportTaskModal);
+    document.getElementById("closeReportTaskModalBtn").addEventListener("click", closeReportTaskModal);
+    reportTaskModal.addEventListener("click", function (e) { if (e.target === reportTaskModal) closeReportTaskModal(); });
 
     document.getElementById("reportFilterForm").addEventListener("submit", function (e) {
       e.preventDefault();
@@ -163,10 +245,13 @@
       renderReports();
     });
 
+    /* Download reuses whichever date range is already applied via the From/To filter above
+       the table — no separate date range in the download modal itself. */
     var downloadModal = document.getElementById("downloadModal");
     document.getElementById("downloadBtn").addEventListener("click", function () {
-      document.getElementById("dlFrom").value = repFrom;
-      document.getElementById("dlTo").value = repTo || Data.isoDate(Data.today());
+      document.getElementById("downloadModalSubtitle").textContent = (repFrom || repTo)
+        ? "Choose a file format to export — " + (repFrom ? Data.displayDate(repFrom) : "the start") + " to " + (repTo ? Data.displayDate(repTo) : "today") + "."
+        : "Choose a file format to export — all reports.";
       document.getElementById("dlFormat").value = "pdf";
       document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-format") === "pdf"); });
       downloadModal.classList.add("show");

@@ -13,6 +13,7 @@
   var LABOURERS_KEY = "cui_labourers_v1";
   var ATTENDANCE_KEY = "cui_attendance_v1";
   var WAGE_PAYMENTS_KEY = "cui_wage_payments_v1";
+  var SALARY_PAYMENTS_KEY = "cui_salary_payments_v1";
   var MATERIALS_KEY = "cui_materials_v1";
   var STOCK_TXNS_KEY = "cui_stock_txns_v1";
   var EXPENSES_KEY = "cui_expenses_v1";
@@ -338,6 +339,10 @@
   }
 
   var wagePaymentsStore = makeStore(WAGE_PAYMENTS_KEY, buildSeedWagePayments);
+
+  /* ---------------- Salary payments (for project-assigned users, e.g. supervisors) ---------------- */
+
+  var salaryPaymentsStore = makeStore(SALARY_PAYMENTS_KEY, function () { return []; });
 
   /* ---------------- Materials (global master) ---------------- */
 
@@ -682,6 +687,7 @@
     getAttendance: attendanceStore.get, saveAttendance: attendanceStore.save,
     addAttendance: addAttendance,
     getWagePayments: wagePaymentsStore.get, saveWagePayments: wagePaymentsStore.save,
+    getSalaryPayments: salaryPaymentsStore.get, saveSalaryPayments: salaryPaymentsStore.save,
     getMaterials: materialsStore.get, saveMaterials: materialsStore.save,
     getStockTransactions: stockTxnsStore.get, saveStockTransactions: stockTxnsStore.save,
     getExpenses: expensesStore.get, saveExpenses: expensesStore.save,

@@ -1104,6 +1104,60 @@ h1, h2, h3,
   .bill-line-row .gline-remove { grid-area: remove; justify-self: end; }
 }
 
+/* ---------- Compact material-line builder (subtask material usage: material + qty only) ---------- */
+
+.subtask-material-lines {
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.subtask-material-head {
+  display: grid;
+  grid-template-columns: 2fr 1fr 34px;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--surface-2);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+
+.subtask-material-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 34px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.subtask-material-row select,
+.subtask-material-row input {
+  padding: 7px 9px;
+  font-size: 12.5px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  width: 100%;
+  font-family: inherit;
+}
+
+.subtask-material-row .action-trigger { padding: 4px; opacity: 0.6; justify-self: end; }
+.subtask-material-row .action-trigger:hover { opacity: 1; color: var(--danger); }
+
+@media (max-width: 480px) {
+  .subtask-material-head { display: none; }
+  .subtask-material-row { grid-template-columns: 1fr 1fr; grid-template-areas: "material material" "qty remove"; }
+  .subtask-material-row select { grid-area: material; }
+  .subtask-material-row .scm-qty { grid-area: qty; }
+  .subtask-material-row .action-trigger { grid-area: remove; }
+}
+
 .data-table tbody td, .data-table tfoot td {
   padding: 14px 18px;
   font-size: 13.5px;
@@ -1863,6 +1917,20 @@ h1, h2, h3,
 }
 
 .gantt-date-input:hover, .gantt-date-input:focus { border-color: var(--accent-2); }
+
+.salary-inline-input {
+  width: 110px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 600;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.salary-inline-input:hover, .salary-inline-input:focus { border-color: var(--accent-2); }
 
 .gantt-tracks {
   flex: 1;
