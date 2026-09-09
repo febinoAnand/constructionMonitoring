@@ -52,11 +52,6 @@
           <div class="field"><label>Username</label><input type="text" id="fUsername" placeholder="e.g. ramesh.babu"></div>
           <div class="field"><label>Phone</label><input type="text" id="fPhone"></div>
           <div class="field"><label>Email</label><input type="email" id="fEmail"></div>
-          <div class="field" id="salaryWrap" style="display:none"><label>Monthly Salary (₹)</label><input type="number" id="fSalary" min="0"></div>
-          <div class="field full" id="assignWrap">
-            <label>Assigned Projects (only used if the role isn't "sees all projects")</label>
-            <div id="assignCheckboxes" style="display:flex;flex-direction:column;gap:8px"></div>
-          </div>
         </div>
       </form>
     </div>
@@ -85,7 +80,6 @@
     var canDelete = App.can("users", "delete");
     if (!canCreate) document.getElementById("addBtn").style.display = "none";
 
-    var allProjects = Data.getProjects();
     var roleSelect = document.getElementById("fRole");
     var sortState = { field: null, dir: "asc" };
     var page = 1;
@@ -95,8 +89,6 @@
       App.sortableTh("User", "name", sortState) +
       App.sortableTh("Role", "role", sortState) +
       App.sortableTh("Contact", "phone", sortState) +
-      '<th>Assigned Projects</th>' +
-      App.sortableTh("Monthly Salary", "monthlySalary", sortState) +
       '<th></th>';
     App.wireSort(document.getElementById("tableHeadRow"), sortState, function () { page = 1; render(); });
 
@@ -122,7 +114,7 @@
     function render() {
       var users = Data.getUsers();
       if (!users.length) {
-        document.getElementById("tableBody").innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("hardHat") + '<p>No users yet.</p></div></td></tr>';
+        document.getElementById("tableBody").innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("hardHat") + '<p>No users yet.</p></div></td></tr>';
         document.getElementById("tablePager").innerHTML = "";
         return;
       }
@@ -132,16 +124,10 @@
 
       document.getElementById("tableBody").innerHTML = pg.pageItems.map(function (u) {
         var allProj = roleAllProjects(u.roleId);
-        var assigned = (u.assignedProjectIds || []).map(function (pid) {
-          var p = allProjects.find(function (x) { return x.id === pid; });
-          return p ? '<span class="chip chip-amber">' + p.code + '</span>' : '';
-        }).join(" ");
         return '<tr>' +
           '<td><div class="cell-user"><div class="cell-avatar">' + u.name.charAt(0) + '</div><span class="cell-user-name">' + u.name + '</span></div>' + (u.username ? '<span class="cell-mono">@' + u.username + '</span>' : '') + '</td>' +
           '<td><span class="status-pill ' + (allProj ? "confirmed" : "pending") + '">' + roleName(u.roleId) + '</span></td>' +
           '<td>' + (u.phone || "—") + '<br><span class="desc-cell">' + (u.email || "") + '</span></td>' +
-          '<td>' + (allProj ? '<span class="desc-cell">All projects</span>' : (assigned || '<span class="desc-cell">None assigned</span>')) + '</td>' +
-          '<td>' + (u.monthlySalary ? '₹' + u.monthlySalary.toLocaleString("en-IN") : '<span class="desc-cell">—</span>') + '</td>' +
           '<td>' +
             '<div class="action-buttons-row">' +
               '<button class="action-trigger" data-invite="' + u.id + '" title="Send Invite">' + App.svg("mail") + '</button>' +
@@ -206,21 +192,6 @@
       render();
     }
 
-    function renderAssignCheckboxes(selected) {
-      document.getElementById("assignCheckboxes").innerHTML = allProjects.map(function (p) {
-        var checked = selected.indexOf(p.id) !== -1 ? "checked" : "";
-        return '<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer">' +
-          '<input type="checkbox" value="' + p.id + '" ' + checked + ' style="width:16px;height:16px">' + p.name + ' <span class="cell-mono">' + p.code + '</span></label>';
-      }).join("");
-    }
-
-    function toggleAssignVisibility() {
-      document.getElementById("assignWrap").style.display = roleAllProjects(roleSelect.value) ? "none" : "";
-      var salaryEligible = roleSelect.value === "r_supervisor" || roleSelect.value === "r_accountant";
-      document.getElementById("salaryWrap").style.display = salaryEligible ? "" : "none";
-    }
-    roleSelect.addEventListener("change", toggleAssignVisibility);
-
     var modal = document.getElementById("userModal");
     function openModal(id) {
       refreshRoleOptions();
@@ -234,15 +205,11 @@
         document.getElementById("fUsername").value = u.username || "";
         document.getElementById("fPhone").value = u.phone || "";
         document.getElementById("fEmail").value = u.email || "";
-        document.getElementById("fSalary").value = u.monthlySalary || "";
-        renderAssignCheckboxes(u.assignedProjectIds || []);
         document.getElementById("modalResetBtn").style.display = "";
       } else {
         document.getElementById("modalTitle").textContent = "Add User";
-        renderAssignCheckboxes([]);
         document.getElementById("modalResetBtn").style.display = "none";
       }
-      toggleAssignVisibility();
       modal.classList.add("show");
     }
     function closeModal() { modal.classList.remove("show"); }
@@ -257,7 +224,10 @@
       if (!name) { App.showToast("Name is required", true); return null; }
       var id = document.getElementById("editId").value;
       var roleId = roleSelect.value;
-      var assigned = Array.from(document.querySelectorAll("#assignCheckboxes input:checked")).map(function (c) { return c.value; });
+      /* Assigned Projects and Monthly Salary are no longer editable from this page (managed
+         from the Projects page's supervisor panel instead) — preserve whatever an existing
+         user already has rather than wiping it out on every unrelated edit made here. */
+      var existing = id ? Data.getUsers().find(function (u) { return u.id === id; }) : null;
 
       var record = {
         id: id || Data.uid("u"),
@@ -265,8 +235,8 @@
         username: document.getElementById("fUsername").value.trim(),
         phone: document.getElementById("fPhone").value.trim(),
         email: document.getElementById("fEmail").value.trim(),
-        monthlySalary: (roleId === "r_supervisor" || roleId === "r_accountant") ? (Number(document.getElementById("fSalary").value) || 0) : 0,
-        assignedProjectIds: roleAllProjects(roleId) ? [] : assigned
+        monthlySalary: existing ? (existing.monthlySalary || 0) : 0,
+        assignedProjectIds: existing ? (existing.assignedProjectIds || []) : []
       };
 
       var users = Data.getUsers();

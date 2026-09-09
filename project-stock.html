@@ -29,7 +29,7 @@
 <div class="modal-overlay" id="downloadModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Download Transaction History</h3><p>Choose a file format and date range to export.</p></div>
+      <div><h3 id="downloadModalTitle">Download</h3><p>Choose a file format and date range to export.</p></div>
       <button class="modal-close" id="closeDownloadModal">&times;</button>
     </div>
     <div class="modal-body">
@@ -102,14 +102,38 @@
         '</form>' +
       '</div>' : '') +
       '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
-      '<div class="panel full-panel">' +
-        '<div class="panel-header"><h3>Current Stock Balance</h3></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr id="balanceHeadRow"></tr></thead><tbody id="balanceBody"></tbody></table></div>' +
+      '<div class="view-toggle" id="stockViewToggle">' +
+        '<button class="view-toggle-btn" data-view="balance">' + App.svg("warehouse") + ' Stock Balance</button>' +
+        '<button class="view-toggle-btn" data-view="transactions">' + App.svg("fileText") + ' Transactions</button>' +
+        '<button class="view-toggle-btn" data-view="materials">' + App.svg("box") + ' Materials Used</button>' +
+        '<button class="view-toggle-btn" data-view="byTask">' + App.svg("columns") + ' By Task</button>' +
       '</div>' +
-      '<div class="panel full-panel">' +
-        '<div class="panel-header"><h3>Transaction History</h3><div style="display:flex;align-items:center;gap:10px"><span class="panel-tag" id="txnCount"></span><button class="btn btn-outline" id="downloadBtn" style="padding:7px 14px;font-size:12.5px">' + App.svg("download") + ' Download</button></div></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr id="txnHeadRow"></tr></thead><tbody id="txnBody"></tbody><tfoot id="txnFoot"></tfoot></table></div>' +
-        '<div class="panel-footer-row" style="justify-content:flex-end" id="txnPager"></div>' +
+      '<div id="balanceView">' +
+        '<div class="panel full-panel">' +
+          '<div class="panel-header"><h3>Current Stock Balance</h3><button class="btn btn-outline" id="downloadBalanceBtn" data-download="balance" style="padding:7px 14px;font-size:12.5px">' + App.svg("download") + ' Download</button></div>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr id="balanceHeadRow"></tr></thead><tbody id="balanceBody"></tbody></table></div>' +
+        '</div>' +
+      '</div>' +
+      '<div id="transactionsView" style="display:none">' +
+        '<div class="panel full-panel">' +
+          '<div class="panel-header"><h3>Transaction History</h3><div style="display:flex;align-items:center;gap:10px"><span class="panel-tag" id="txnCount"></span><button class="btn btn-outline" id="downloadTxnBtn" data-download="transactions" style="padding:7px 14px;font-size:12.5px">' + App.svg("download") + ' Download</button></div></div>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr id="txnHeadRow"></tr></thead><tbody id="txnBody"></tbody><tfoot id="txnFoot"></tfoot></table></div>' +
+          '<div class="panel-footer-row" style="justify-content:flex-end" id="txnPager"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div id="materialsView" style="display:none">' +
+        '<div class="panel full-panel">' +
+          '<div class="panel-header"><h3>Total Materials Used — All Tasks</h3><div style="display:flex;align-items:center;gap:10px"><span class="panel-tag" id="materialsUsedTotalCount"></span><button class="btn btn-outline" id="downloadMaterialsBtn" data-download="materials" style="padding:7px 14px;font-size:12.5px">' + App.svg("download") + ' Download</button></div></div>' +
+          '<p class="section-subheading" style="margin:2px 0 14px">Every material used across this project\'s tasks, added up regardless of which task it was recorded against.</p>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Total Quantity Used</th><th>Used In</th><th>Remaining in Stock</th></tr></thead><tbody id="materialsUsedSummaryBody"></tbody></table></div>' +
+        '</div>' +
+      '</div>' +
+      '<div id="byTaskView" style="display:none">' +
+        '<div class="panel full-panel">' +
+          '<div class="panel-header"><h3>Materials Used by Task</h3><div style="display:flex;align-items:center;gap:10px"><span class="panel-tag" id="materialsUsedCount"></span><button class="btn btn-outline" id="downloadByTaskBtn" data-download="byTask" style="padding:7px 14px;font-size:12.5px">' + App.svg("download") + ' Download</button></div></div>' +
+          '<p class="section-subheading" style="margin:2px 0 14px">Every material recorded as used on a task, drawn straight from stock. Record usage from a task\'s detail view.</p>' +
+          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Task</th><th>Status</th><th>Material</th><th>Quantity Used</th></tr></thead><tbody id="materialsUsedTableBody"></tbody></table></div>' +
+        '</div>' +
       '</div>';
 
     var balanceSortState = { field: null, dir: "asc" };
@@ -240,7 +264,91 @@
       App.renderPager(document.getElementById("txnPager"), txnPage, pg.totalPages, function (newPage) { txnPage = newPage; renderTxns(); });
     }
 
-    function renderAll() { renderStats(); renderBalances(); renderTxns(); }
+    function statusColumns() { return Business.getProjectStatusColumns(projectId); }
+    function statusMeta(key) { return statusColumns().find(function (s) { return s.key === key; }) || { key: key, label: key }; }
+    function statusPillClass(key) { return key === "done" ? "delivered" : key === "todo" ? "pending" : "confirmed"; }
+
+    /* Rolls up every task's materialsUsed lines into a per-material total (quantity used +
+       how many tasks it was used on) so usage across the whole project is visible at a glance,
+       alongside the task-by-task breakdown below it. Moved here from the Tasks page so
+       material consumption sits next to the stock ledger it's drawn from. */
+    function renderMaterialsUsedSummary(rows) {
+      var summaryBody = document.getElementById("materialsUsedSummaryBody");
+      if (!summaryBody) return;
+      if (!rows.length) {
+        summaryBody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("box") + "<p>No material usage recorded yet.</p></div></td></tr>";
+        document.getElementById("materialsUsedTotalCount").textContent = "0 materials";
+        return;
+      }
+      var totals = {};
+      rows.forEach(function (r) {
+        var t = totals[r.line.materialId] || (totals[r.line.materialId] = { qty: 0, taskIds: {} });
+        t.qty += r.line.qty;
+        t.taskIds[r.task.id] = true;
+      });
+      var materialIds = Object.keys(totals);
+      document.getElementById("materialsUsedTotalCount").textContent = materialIds.length + " material" + (materialIds.length === 1 ? "" : "s");
+      summaryBody.innerHTML = materialIds.map(function (materialId) {
+        var m = materials.find(function (x) { return x.id === materialId; });
+        var t = totals[materialId];
+        var taskCount = Object.keys(t.taskIds).length;
+        var balance = Business.getStockBalance(projectId, materialId).balance;
+        return '<tr>' +
+          '<td><strong>' + (m ? m.name : "—") + '</strong></td>' +
+          '<td>' + t.qty + ' ' + (m ? m.unit : "") + '</td>' +
+          '<td>' + taskCount + ' task' + (taskCount === 1 ? "" : "s") + '</td>' +
+          '<td>' + balance + ' ' + (m ? m.unit : "") + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    function renderMaterialsUsedByTask(rows) {
+      var body = document.getElementById("materialsUsedTableBody");
+      if (!body) return;
+      document.getElementById("materialsUsedCount").textContent = rows.length + " entr" + (rows.length === 1 ? "y" : "ies");
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("box") + "<p>No material usage recorded yet.</p></div></td></tr>";
+        return;
+      }
+      body.innerHTML = rows.map(function (r) {
+        var m = materials.find(function (x) { return x.id === r.line.materialId; });
+        return '<tr>' +
+          '<td><a href="#" data-open-task-detail="' + r.task.id + '"><strong>' + r.task.title + '</strong></a></td>' +
+          '<td><span class="status-pill ' + statusPillClass(r.task.status) + '">' + statusMeta(r.task.status).label + '</span></td>' +
+          '<td>' + (m ? m.name : "—") + '</td>' +
+          '<td>' + r.line.qty + ' ' + (m ? m.unit : "") + '</td>' +
+        '</tr>';
+      }).join("");
+    }
+
+    function renderTaskMaterialsUsage() {
+      var tasks = Data.getTasks().filter(function (t) { return t.projectId === projectId; });
+      var rows = [];
+      tasks.forEach(function (t) {
+        (t.materialsUsed || []).forEach(function (l) { rows.push({ task: t, line: l }); });
+      });
+      renderMaterialsUsedSummary(rows);
+      renderMaterialsUsedByTask(rows);
+    }
+
+    function renderAll() { renderStats(); renderBalances(); renderTxns(); renderTaskMaterialsUsage(); }
+
+    var activeStockView = "balance";
+    function setStockView(view) {
+      activeStockView = view;
+      document.getElementById("balanceView").style.display = view === "balance" ? "" : "none";
+      document.getElementById("transactionsView").style.display = view === "transactions" ? "" : "none";
+      document.getElementById("materialsView").style.display = view === "materials" ? "" : "none";
+      document.getElementById("byTaskView").style.display = view === "byTask" ? "" : "none";
+      document.querySelectorAll("#stockViewToggle .view-toggle-btn").forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-view") === view);
+      });
+    }
+    document.getElementById("stockViewToggle").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-view]");
+      if (btn) setStockView(btn.getAttribute("data-view"));
+    });
+    setStockView("balance");
 
     var stockFormEl = document.getElementById("stockForm");
     if (stockFormEl) stockFormEl.addEventListener("submit", function (e) {
@@ -326,8 +434,24 @@
       renderAll();
     });
 
+    document.getElementById("materialsUsedTableBody").addEventListener("click", function (e) {
+      var openDetail = e.target.closest("[data-open-task-detail]");
+      if (!openDetail) return;
+      e.preventDefault();
+      window.location.href = "project-task-detail.html?id=" + projectId + "&task=" + openDetail.getAttribute("data-open-task-detail");
+    });
+
+    /* One shared download modal serves every table on this page (Stock Balance, Transaction
+       History, Materials Used, Materials by Task) — the button that opened it (data-download)
+       decides the modal title and which table's data the export/toast refers to. */
     var downloadModal = document.getElementById("downloadModal");
-    document.getElementById("downloadBtn").addEventListener("click", function () {
+    var downloadLabels = { balance: "Stock Balance", transactions: "Transaction History", materials: "Total Materials Used", byTask: "Materials Used by Task" };
+    var downloadContext = "transactions";
+    document.getElementById("pageBody").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-download]");
+      if (!btn) return;
+      downloadContext = btn.getAttribute("data-download");
+      document.getElementById("downloadModalTitle").textContent = "Download " + downloadLabels[downloadContext];
       document.getElementById("dlFrom").value = "";
       document.getElementById("dlTo").value = Data.isoDate(Data.today());
       document.getElementById("dlFormat").value = "pdf";
@@ -346,8 +470,11 @@
     downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
     document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
       var format = document.getElementById("dlFormat").value.toUpperCase();
+      var from = document.getElementById("dlFrom").value;
+      var to = document.getElementById("dlTo").value;
+      var rangeText = (from || to) ? " for " + (from ? Data.displayDate(from) : "the start") + " – " + (to ? Data.displayDate(to) : "today") : "";
       downloadModal.classList.remove("show");
-      App.showToast("Your " + format + " file is downloading...");
+      App.showToast("Your " + format + " file (" + downloadLabels[downloadContext] + ")" + rangeText + " is downloading...");
     });
 
     renderAll();

@@ -319,7 +319,7 @@
     { key: "dashboard", href: "dashboard.html", label: "Dashboard", icon: "dashboard" },
     { key: "projects", href: "projects.html", label: "Projects", icon: "building" },
     { section: "Workforce & Materials" },
-    { key: "labour", href: "labour-list.html", label: "Labourers", icon: "people", require: "labour:read" },
+    /* Labourers is hidden from the dashboard sidebar. */
     { key: "godown", href: "godown.html", label: "Godown", icon: "warehouse", require: "stock:read" },
     { key: "materials", href: "godown-materials.html", label: "Materials", icon: "box", require: "stock:read" },
     { section: "Business" },
@@ -395,13 +395,14 @@
   var PROJECT_TABS = [
     { key: "overview", href: "project-overview.html", label: "Overview", icon: "dashboard" },
     { key: "tasks", href: "project-tasks.html", label: "Tasks", icon: "columns" },
-    /* Labour and Wages tabs are hidden from project navigation — labour wage costs
-       are now entered manually from the Expenses tab (category: Labour / Wages)
-       instead of through the dedicated Labour/Wages pages. */
+    /* Labour tab is hidden from project navigation — labour wage costs can still be
+       entered manually from the Expenses tab (category: Labour / Wages) as well. */
+    { key: "wages", href: "project-wages.html", label: "Wages", icon: "coins" },
+    { key: "salary", href: "project-salary.html", label: "Salary", icon: "briefcase" },
     { key: "stock", href: "project-stock.html", label: "Stock", icon: "box" },
     { key: "expenses", href: "project-expenses.html", label: "Expenses", icon: "wallet" },
-    { key: "reports", href: "project-reports.html", label: "Reports", icon: "fileText" },
-    { key: "progress", href: "project-progress.html", label: "Progress", icon: "trendingUp" }
+    { key: "reports", href: "project-reports.html", label: "Reports", icon: "fileText" }
+    /* Progress tab is hidden from project navigation. */
   ];
 
   function projectTabsHtml(projectId, activeKey) {

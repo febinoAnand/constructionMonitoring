@@ -221,12 +221,6 @@
       '</div>';
     }).join("");
 
-    var datesHtml = '<div class="gantt-label-cell gantt-scale-spacer"></div>' + plotRows.map(function (r) {
-      return '<div class="gantt-label-cell gantt-date-cell">' +
-        '<input type="date" class="gantt-date-input" value="' + (r.estimate || "") + '" data-gantt-date="' + r.id + '" title="Change estimated completion">' +
-      '</div>';
-    }).join("");
-
     container.innerHTML =
       '<div class="gantt-chart">' +
         '<div class="gantt-labels">' + labelsHtml + '</div>' +
@@ -238,7 +232,6 @@
           trackRowsHtml +
           '<div class="gantt-today-line" style="left:' + pct(todayTime) + '%" title="Today"></div>' +
         '</div>' +
-        '<div class="gantt-labels gantt-dates-col">' + datesHtml + '</div>' +
       '</div>' +
       '<div class="gantt-legend">' +
         '<span><i style="background:' + statusColor.todo + '"></i>To Do</span>' +
@@ -251,12 +244,6 @@
     if (opts.onSelect) {
       container.querySelectorAll("[data-gantt-open]").forEach(function (el) {
         el.addEventListener("click", function () { opts.onSelect(el.getAttribute("data-gantt-open")); });
-      });
-    }
-    if (opts.onDateChange) {
-      container.querySelectorAll("[data-gantt-date]").forEach(function (el) {
-        el.addEventListener("click", function (e) { e.stopPropagation(); });
-        el.addEventListener("change", function () { opts.onDateChange(el.getAttribute("data-gantt-date"), el.value || null); });
       });
     }
   }

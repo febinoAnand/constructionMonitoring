@@ -238,7 +238,6 @@
         '<button class="view-toggle-btn" data-view="table">' + App.svg("fileText") + ' Table</button>' +
         '<button class="view-toggle-btn" data-view="board">' + App.svg("columns") + ' Board</button>' +
         '<button class="view-toggle-btn" data-view="timeline">' + App.svg("clock") + ' Timeline</button>' +
-        '<button class="view-toggle-btn" data-view="materials">' + App.svg("box") + ' Materials</button>' +
       '</div>' +
       '<div id="boardView" style="display:none"><div class="kanban-board" id="kanbanBoard"></div></div>' +
       '<div id="timelineView" style="display:none">' +
@@ -247,18 +246,6 @@
           '<p class="section-subheading" style="margin:2px 0 14px">Each bar spans a task from its start date to its due date (or the day it finished, if done). Bar color shows status — amber To Do, blue In Progress, green Done, red overdue. The small ring marks the estimated finish date, and you can change that date directly using the field on the right of each row. The vertical red line is today.</p>' +
           '<div id="timelineGantt" style="margin-top:4px"></div>' +
           '<div class="panel-footer-row" style="justify-content:flex-end" id="timelinePager"></div>' +
-        '</div>' +
-      '</div>' +
-      '<div id="materialsView" style="display:none">' +
-        '<div class="panel full-panel">' +
-          '<div class="panel-header"><h3>Total Materials Used — All Tasks</h3><span class="panel-tag" id="materialsUsedTotalCount"></span></div>' +
-          '<p class="section-subheading" style="margin:2px 0 14px">Every material used across this project\'s tasks, added up regardless of which task it was recorded against.</p>' +
-          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Material</th><th>Total Quantity Used</th><th>Used In</th><th>Remaining in Stock</th></tr></thead><tbody id="materialsUsedSummaryBody"></tbody></table></div>' +
-        '</div>' +
-        '<div class="panel full-panel" style="margin-top:20px">' +
-          '<div class="panel-header"><h3>Materials Used by Task</h3><span class="panel-tag" id="materialsUsedCount"></span></div>' +
-          '<p class="section-subheading" style="margin:2px 0 14px">Every material recorded as used on a task, drawn straight from the project\'s stock. Record usage from a task\'s detail view.</p>' +
-          '<div class="table-scroll"><table class="data-table"><thead><tr><th>Task</th><th>Status</th><th>Material</th><th>Quantity Used</th></tr></thead><tbody id="materialsUsedTableBody"></tbody></table></div>' +
         '</div>' +
       '</div>' +
       '<div id="tableView">' +
@@ -555,73 +542,13 @@
       renderAll();
     });
 
-    function renderAll() { renderKanban(); renderTable(); renderTimelineView(); renderMaterialsUsedView(); }
-
-    /* Rolls up every task's materialsUsed lines into a per-material total (quantity used +
-       how many tasks it was used on) so usage across the whole project is visible at a glance,
-       alongside the existing task-by-task breakdown below it. */
-    function renderMaterialsUsedSummary(rows) {
-      var summaryBody = document.getElementById("materialsUsedSummaryBody");
-      if (!summaryBody) return;
-      if (!rows.length) {
-        summaryBody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("box") + "<p>No material usage recorded yet.</p></div></td></tr>";
-        document.getElementById("materialsUsedTotalCount").textContent = "0 materials";
-        return;
-      }
-      var materials = Data.getMaterials();
-      var totals = {};
-      rows.forEach(function (r) {
-        var t = totals[r.line.materialId] || (totals[r.line.materialId] = { qty: 0, taskIds: {} });
-        t.qty += r.line.qty;
-        t.taskIds[r.task.id] = true;
-      });
-      var materialIds = Object.keys(totals);
-      document.getElementById("materialsUsedTotalCount").textContent = materialIds.length + " material" + (materialIds.length === 1 ? "" : "s");
-      summaryBody.innerHTML = materialIds.map(function (materialId) {
-        var m = materials.find(function (x) { return x.id === materialId; });
-        var t = totals[materialId];
-        var taskCount = Object.keys(t.taskIds).length;
-        var balance = Business.getStockBalance(projectId, materialId).balance;
-        return '<tr>' +
-          '<td><strong>' + (m ? m.name : "—") + '</strong></td>' +
-          '<td>' + t.qty + ' ' + (m ? m.unit : "") + '</td>' +
-          '<td>' + taskCount + ' task' + (taskCount === 1 ? "" : "s") + '</td>' +
-          '<td>' + balance + ' ' + (m ? m.unit : "") + '</td>' +
-        '</tr>';
-      }).join("");
-    }
-
-    function renderMaterialsUsedView() {
-      var tasks = Data.getTasks().filter(function (t) { return t.projectId === projectId; });
-      var rows = [];
-      tasks.forEach(function (t) {
-        (t.materialsUsed || []).forEach(function (l) { rows.push({ task: t, line: l }); });
-      });
-      renderMaterialsUsedSummary(rows);
-      document.getElementById("materialsUsedCount").textContent = rows.length + " entr" + (rows.length === 1 ? "y" : "ies");
-      var body = document.getElementById("materialsUsedTableBody");
-      if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("box") + "<p>No material usage recorded yet.</p></div></td></tr>";
-        return;
-      }
-      var materials = Data.getMaterials();
-      body.innerHTML = rows.map(function (r) {
-        var m = materials.find(function (x) { return x.id === r.line.materialId; });
-        return '<tr>' +
-          '<td><a href="#" data-open-task-detail="' + r.task.id + '"><strong>' + r.task.title + '</strong></a></td>' +
-          '<td><span class="status-pill ' + statusPillClass(r.task.status) + '">' + statusMeta(r.task.status).label + '</span></td>' +
-          '<td>' + (m ? m.name : "—") + '</td>' +
-          '<td>' + r.line.qty + ' ' + (m ? m.unit : "") + '</td>' +
-        '</tr>';
-      }).join("");
-    }
+    function renderAll() { renderKanban(); renderTable(); renderTimelineView(); }
 
     function setView(view) {
       activeView = view;
       document.getElementById("boardView").style.display = view === "board" ? "" : "none";
       document.getElementById("tableView").style.display = view === "table" ? "" : "none";
       document.getElementById("timelineView").style.display = view === "timeline" ? "" : "none";
-      document.getElementById("materialsView").style.display = view === "materials" ? "" : "none";
       document.querySelectorAll(".view-toggle-btn").forEach(function (b) {
         b.classList.toggle("active", b.getAttribute("data-view") === view);
       });
@@ -638,14 +565,14 @@
     function syncCompletionReport(task) {
       var reports = Data.getWorkReports();
       var existing = reports.find(function (r) { return r.taskId === task.id && r.source === "task_complete"; });
-      var today = Data.isoDate(Data.today());
+      var reportDate = task.completedAt || Data.isoDate(Data.today());
       if (existing) {
-        existing.date = today;
+        existing.date = reportDate;
         existing.title = task.title;
         existing.description = "Task completed: " + task.title + (task.assignee ? " (" + task.assignee + ")" : "") + ".";
       } else {
         reports.push({
-          id: Data.uid("wr"), projectId: projectId, date: today, title: task.title,
+          id: Data.uid("wr"), projectId: projectId, date: reportDate, title: task.title,
           description: "Task completed: " + task.title + (task.assignee ? " (" + task.assignee + ")" : "") + ".",
           source: "task_complete", taskId: task.id
         });

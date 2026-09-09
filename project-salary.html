@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Project Wages</title>
+<title>Project Salary</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -29,18 +29,18 @@
 <div class="modal-overlay" id="payModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3 id="payModalTitle">Record Wage Payment</h3><p>Advance or settlement payment to a labourer.</p></div>
+      <div><h3>Record Salary Payment</h3><p>Advance or settlement payment to a user assigned to this project.</p></div>
       <button class="modal-close" id="closePayModal">&times;</button>
     </div>
     <div class="modal-body">
       <form id="payForm">
         <div class="field-grid">
           <div class="field full">
-            <label>Labourer <span class="req">*</span></label>
+            <label>User <span class="req">*</span></label>
             <div class="combo-wrap" id="payComboWrap">
-              <input type="text" id="payLabInput" placeholder="Search labourer...">
+              <input type="text" id="payUserInput" placeholder="Search user...">
               <div class="combo-panel" id="payComboPanel"></div>
-              <input type="hidden" id="payLabId">
+              <input type="hidden" id="payUserId">
             </div>
           </div>
           <div class="field"><label>Type</label>
@@ -62,7 +62,7 @@
 <div class="modal-overlay" id="downloadModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Download Wage Payments</h3><p>Choose a file format and date range to export.</p></div>
+      <div><h3>Download Salary Payments</h3><p>Choose a file format and date range to export.</p></div>
       <button class="modal-close" id="closeDownloadModal">&times;</button>
     </div>
     <div class="modal-body">
@@ -96,59 +96,62 @@
   App.requireAuth();
   var projectId = new URLSearchParams(window.location.search).get("id");
   var project = Data.getProjects().find(function (p) { return p.id === projectId; });
-  App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: "Wages" });
+  App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: "Salary" });
 
   if (!project || !App.guardProjectAccess(projectId)) {
     document.getElementById("projName").textContent = project ? "Access restricted" : "Project not found";
   } else {
     document.getElementById("projName").textContent = project.name;
     document.getElementById("projMeta").textContent = project.code;
-    document.getElementById("tabsMount").innerHTML = App.projectTabsHtml(projectId, "wages");
+    document.getElementById("tabsMount").innerHTML = App.projectTabsHtml(projectId, "salary");
 
-    var canCreate = App.can("labour", "create");
+    var canCreate = App.can("users", "update");
 
     document.getElementById("pageBody").innerHTML =
+      '<p class="section-subheading">Only users assigned to this project (from the Add/Edit Project popup) appear here — set a monthly salary and record advance or settlement payments against it, the same way labourer wages work on the Wages tab.</p>' +
       '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
       '<div class="panel full-panel">' +
-        '<div class="panel-header"><h3>Wage Payments</h3><div style="display:flex;align-items:center;gap:10px">' +
+        '<div class="panel-header"><h3>Salary Summary by User</h3></div>' +
+        '<div class="table-scroll"><table class="data-table"><thead><tr id="summaryHeadRow"></tr></thead><tbody id="summaryBody"></tbody></table></div>' +
+        '<div class="panel-footer-row" style="justify-content:flex-end" id="summaryPager"></div>' +
+      '</div>' +
+      '<div class="panel full-panel" style="margin-top:20px">' +
+        '<div class="panel-header"><h3>Salary Payments</h3><div style="display:flex;align-items:center;gap:10px">' +
           '<button class="btn btn-outline" id="downloadBtn" style="padding:7px 14px;font-size:12.5px">' + App.svg("download") + ' Download</button>' +
           (canCreate ? '<button class="btn btn-outline" id="addPayBtn" style="padding:7px 14px;font-size:12.5px">+ Record Payment</button>' : '') +
         '</div></div>' +
         '<div class="table-scroll"><table class="data-table"><thead><tr id="payHeadRow"></tr></thead><tbody id="payBody"></tbody></table></div>' +
         '<div class="panel-footer-row" style="justify-content:flex-end" id="payPager"></div>' +
-      '</div>' +
-      '<div class="panel full-panel" style="margin-top:20px">' +
-        '<div class="panel-header"><h3>Wage Summary by Labourer</h3></div>' +
-        '<div class="table-scroll"><table class="data-table"><thead><tr id="summaryHeadRow"></tr></thead><tbody id="summaryBody"></tbody></table></div>' +
-        '<div class="panel-footer-row" style="justify-content:flex-end" id="summaryPager"></div>' +
       '</div>';
 
     var paySortState = { field: null, dir: "asc" };
     var payPage = 1;
     var summarySortState = { field: null, dir: "asc" };
     var summaryPage = 1;
-    var WAGE_PAGE_SIZE = 10;
+    var SALARY_PAGE_SIZE = 10;
+
+    document.getElementById("summaryHeadRow").innerHTML =
+      App.sortableTh("User", "name", summarySortState) +
+      App.sortableTh("Role", "role", summarySortState) +
+      '<th>Monthly Salary (₹)</th>' +
+      App.sortableTh("Paid", "paid", summarySortState) +
+      App.sortableTh("Balance", "balance", summarySortState);
+    App.wireSort(document.getElementById("summaryHeadRow"), summarySortState, function () { summaryPage = 1; renderSummary(); });
 
     document.getElementById("payHeadRow").innerHTML =
       App.sortableTh("Date", "date", paySortState) +
-      App.sortableTh("Labourer", "labourerName", paySortState) +
+      App.sortableTh("User", "userName", paySortState) +
       App.sortableTh("Type", "type", paySortState) +
-      App.sortableTh("Amount", "amount", paySortState) +
-      (canCreate ? '<th></th>' : '');
+      App.sortableTh("Amount", "amount", paySortState);
     App.wireSort(document.getElementById("payHeadRow"), paySortState, function () { payPage = 1; renderPayments(); });
-
-    document.getElementById("summaryHeadRow").innerHTML =
-      App.sortableTh("Labourer", "name", summarySortState) +
-      App.sortableTh("Skill", "skill", summarySortState) +
-      App.sortableTh("Days Worked", "daysWorked", summarySortState) +
-      App.sortableTh("Earned", "earned", summarySortState) +
-      App.sortableTh("Paid", "paid", summarySortState) +
-      App.sortableTh("Owed", "owed", summarySortState);
-    App.wireSort(document.getElementById("summaryHeadRow"), summarySortState, function () { summaryPage = 1; renderSummary(); });
 
     document.getElementById("payDate").value = Data.isoDate(Data.today());
 
-    var activeLabourers = Data.getLabourers().filter(function (l) { return l.isActive; });
+    function assignedUsers() { return Business.getUsersAssignedToProject(projectId); }
+    function roleName(roleId) {
+      var r = Data.getRoles().find(function (x) { return x.id === roleId; });
+      return r ? r.name : "No role";
+    }
 
     function setupCombo(inputId, panelId, wrapId, hiddenId) {
       var input = document.getElementById(inputId);
@@ -157,49 +160,50 @@
       var hidden = document.getElementById(hiddenId);
       if (!input || !panel || !wrap || !hidden) return;
       App.initCombobox({
-        wrap: wrap, input: input, panel: panel, items: activeLabourers,
-        getInitial: function (l) { return l.name.charAt(0); },
-        getLabel: function (l) { return l.name; },
-        getSub: function (l) { return l.skill + " · ₹" + l.defaultDailyWage + "/day"; },
-        matches: function (l, term) { return !term || l.name.toLowerCase().indexOf(term) !== -1 || l.skill.toLowerCase().indexOf(term) !== -1; },
-        onSelect: function (l) { input.value = l.name; hidden.value = l.id; }
+        wrap: wrap, input: input, panel: panel, items: assignedUsers(),
+        getInitial: function (u) { return u.name.charAt(0); },
+        getLabel: function (u) { return u.name; },
+        getSub: function (u) { return roleName(u.roleId) + (u.monthlySalary ? " · ₹" + u.monthlySalary.toLocaleString("en-IN") + "/mo" : ""); },
+        matches: function (u, term) { return !term || u.name.toLowerCase().indexOf(term) !== -1; },
+        onSelect: function (u) { input.value = u.name; hidden.value = u.id; }
       });
       input.addEventListener("input", function () { hidden.value = ""; });
     }
-    setupCombo("payLabInput", "payComboPanel", "payComboWrap", "payLabId");
+    setupCombo("payUserInput", "payComboPanel", "payComboWrap", "payUserId");
 
     function renderStats() {
-      var wagesOwed = Business.getWagesDueTotal(projectId);
-      var wagesPaid = Data.getWagePayments().filter(function (p) { return p.projectId === projectId; }).reduce(function (s, p) { return s + p.amount; }, 0);
-      var advances = Data.getWagePayments().filter(function (p) { return p.projectId === projectId && p.type === "advance"; }).reduce(function (s, p) { return s + p.amount; }, 0);
+      var payments = Data.getSalaryPayments().filter(function (p) { return p.projectId === projectId; });
+      var salaryPaid = payments.reduce(function (s, p) { return s + p.amount; }, 0);
+      var advances = payments.filter(function (p) { return p.type === "advance"; }).reduce(function (s, p) { return s + p.amount; }, 0);
+      var committed = assignedUsers().reduce(function (s, u) { return s + (u.monthlySalary || 0); }, 0);
       document.getElementById("statGrid").innerHTML =
-        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("coins") + '</div><div class="stat-value">₹' + Charts.fmtCompact(wagesPaid) + '</div><div class="stat-label">Wages paid</div></div>' +
+        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("briefcase") + '</div><div class="stat-value">₹' + Charts.fmtCompact(salaryPaid) + '</div><div class="stat-label">Salary paid</div></div>' +
         '<div class="stat-card"><div class="stat-icon icon-amber">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(advances) + '</div><div class="stat-label">Advances given</div></div>' +
-        '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("alert") + '</div><div class="stat-value">₹' + Charts.fmtCompact(wagesOwed) + '</div><div class="stat-label">Wages owed</div></div>';
+        '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("coins") + '</div><div class="stat-value">₹' + Charts.fmtCompact(committed) + '</div><div class="stat-label">Total committed / month</div></div>';
     }
 
     function renderPayments() {
       var payments = App.sortRows(
-        Data.getWagePayments().filter(function (p) { return p.projectId === projectId; }),
+        Data.getSalaryPayments().filter(function (p) { return p.projectId === projectId; }),
         paySortState.field ? paySortState : { field: "date", dir: "desc" },
         function (p, field) {
-          if (field === "labourerName") { var lb = Data.getLabourers().find(function (l) { return l.id === p.labourerId; }); return lb ? lb.name : ""; }
+          if (field === "userName") { var u = Data.getUsers().find(function (x) { return x.id === p.userId; }); return u ? u.name : ""; }
           return p[field];
         }
       );
       var body = document.getElementById("payBody");
       if (!payments.length) {
-        body.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("coins") + '<p>No payments recorded yet.</p></div></td></tr>';
+        body.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("briefcase") + '<p>No salary payments recorded yet.</p></div></td></tr>';
         document.getElementById("payPager").innerHTML = "";
         return;
       }
-      var pg = App.paginate(payments, payPage, WAGE_PAGE_SIZE);
+      var pg = App.paginate(payments, payPage, SALARY_PAGE_SIZE);
       payPage = pg.page;
       body.innerHTML = pg.pageItems.map(function (p) {
-        var lab = Data.getLabourers().find(function (l) { return l.id === p.labourerId; });
+        var u = Data.getUsers().find(function (x) { return x.id === p.userId; });
         return '<tr>' +
           '<td>' + Data.displayDate(p.date) + '</td>' +
-          '<td>' + (lab ? lab.name : "—") + '</td>' +
+          '<td>' + (u ? u.name : "—") + '</td>' +
           '<td><span class="chip ' + (p.type === "advance" ? "chip-amber" : "chip-green") + '">' + (p.type === "advance" ? "Advance" : "Payment") + '</span></td>' +
           '<td class="total-amount">₹' + p.amount + '</td>' +
         '</tr>';
@@ -208,41 +212,51 @@
     }
 
     function renderSummary() {
-      var attendance = Data.getAttendance().filter(function (a) { return a.projectId === projectId; });
-      var labIds = Array.from(new Set(attendance.map(function (a) { return a.labourerId; })));
+      var users = assignedUsers();
       var body = document.getElementById("summaryBody");
-      if (!labIds.length) {
-        body.innerHTML = '<tr><td colspan="6"><div class="empty-state compact">' + App.svg("people") + '<p>No labourers have worked on this project yet.</p></div></td></tr>';
+      if (!users.length) {
+        body.innerHTML = '<tr><td colspan="5"><div class="empty-state compact">' + App.svg("people") + '<p>No users are assigned to this project yet — add them from the Add/Edit Project popup.</p></div></td></tr>';
         document.getElementById("summaryPager").innerHTML = "";
         return;
       }
-      var rows = labIds.map(function (id) {
-        var lab = Data.getLabourers().find(function (l) { return l.id === id; });
-        var sum = Business.getWageSummary(id, { projectId: projectId });
-        return { lab: lab, daysWorked: sum.daysWorked, earned: sum.earned, paid: sum.paid, owed: sum.owed };
+      var rows = users.map(function (u) {
+        var paid = Business.getSalaryPaidTotal(u.id, projectId);
+        return { user: u, paid: paid, balance: Math.max(0, (u.monthlySalary || 0) - paid) };
       });
       rows = App.sortRows(rows, summarySortState, function (r, field) {
-        if (field === "name") return r.lab ? r.lab.name : "";
-        if (field === "skill") return r.lab ? r.lab.skill : "";
+        if (field === "name") return r.user.name;
+        if (field === "role") return roleName(r.user.roleId);
         return r[field];
       });
-      var pg = App.paginate(rows, summaryPage, WAGE_PAGE_SIZE);
+      var pg = App.paginate(rows, summaryPage, SALARY_PAGE_SIZE);
       summaryPage = pg.page;
       body.innerHTML = pg.pageItems.map(function (row) {
-        var lab = row.lab;
+        var u = row.user;
         return '<tr>' +
-          '<td>' + (lab ? lab.name : "—") + '</td>' +
-          '<td><span class="chip chip-amber">' + (lab ? lab.skill : "") + '</span></td>' +
-          '<td>' + row.daysWorked + '</td>' +
-          '<td>₹' + Math.round(row.earned) + '</td>' +
+          '<td><strong>' + u.name + '</strong></td>' +
+          '<td><span class="chip chip-slate">' + roleName(u.roleId) + '</span></td>' +
+          '<td>' + (canCreate
+            ? '<input type="number" class="salary-inline-input" min="0" value="' + (u.monthlySalary || "") + '" data-salary-user="' + u.id + '" placeholder="0">'
+            : (u.monthlySalary ? "₹" + u.monthlySalary.toLocaleString("en-IN") : "—")) + '</td>' +
           '<td>₹' + Math.round(row.paid) + '</td>' +
-          '<td class="total-amount">₹' + Math.round(row.owed) + '</td>' +
+          '<td class="total-amount">₹' + Math.round(row.balance) + '</td>' +
         '</tr>';
       }).join("");
       App.renderPager(document.getElementById("summaryPager"), summaryPage, pg.totalPages, function (newPage) { summaryPage = newPage; renderSummary(); });
     }
 
     function renderAll() { renderStats(); renderPayments(); renderSummary(); }
+
+    document.getElementById("summaryBody").addEventListener("change", function (e) {
+      var input = e.target.closest("[data-salary-user]");
+      if (!input) return;
+      var userId = input.getAttribute("data-salary-user");
+      var amount = Number(input.value) || 0;
+      var users = Data.getUsers().map(function (u) { return u.id === userId ? Object.assign({}, u, { monthlySalary: amount }) : u; });
+      Data.saveUsers(users);
+      App.showToast("Monthly salary updated");
+      renderAll();
+    });
 
     var payModal = document.getElementById("payModal");
     var addPayBtnEl = document.getElementById("addPayBtn");
@@ -252,19 +266,19 @@
     payModal.addEventListener("click", function (e) { if (e.target === payModal) payModal.classList.remove("show"); });
 
     document.getElementById("savePayBtn").addEventListener("click", function () {
-      var labId = document.getElementById("payLabId").value;
+      var userId = document.getElementById("payUserId").value;
       var amount = Number(document.getElementById("payAmount").value);
-      if (!labId || !amount) { App.showToast("Pick a labourer and enter an amount", true); return; }
-      var payments = Data.getWagePayments();
+      if (!userId || !amount) { App.showToast("Pick a user and enter an amount", true); return; }
+      var payments = Data.getSalaryPayments();
       payments.push({
-        id: Data.uid("wp"), labourerId: labId, projectId: projectId,
+        id: Data.uid("sp"), userId: userId, projectId: projectId,
         amount: amount, type: document.getElementById("payType").value,
         date: document.getElementById("payDate").value, notes: document.getElementById("payNotes").value.trim()
       });
-      Data.saveWagePayments(payments);
+      Data.saveSalaryPayments(payments);
       App.showToast("Payment recorded");
       document.getElementById("payForm").reset();
-      document.getElementById("payLabId").value = "";
+      document.getElementById("payUserId").value = "";
       document.getElementById("payDate").value = Data.isoDate(Data.today());
       payModal.classList.remove("show");
       renderAll();
