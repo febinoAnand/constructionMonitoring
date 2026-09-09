@@ -178,7 +178,8 @@
             '<div class="detail-card-header"><span class="card-header-icon">' + App.svg("check") + '</span>Subtasks &amp; Progress</div>' +
             '<div style="padding:20px">' +
               '<div id="taskProgressBar" style="margin-bottom:16px"></div>' +
-              '<div class="checklist-box subtask-list" id="subtaskList"></div>' +
+              '<div id="subtaskCostSummary"></div>' +
+              '<div class="table-scroll"><table class="data-table"><thead><tr><th></th><th>Subtask</th><th class="text-right">Area (sqft)</th><th class="text-right">Rate/unit (₹)</th><th class="text-right">Cost (₹)</th>' + (canUpdate ? '<th></th>' : '') + '</tr></thead><tbody id="subtaskList"></tbody></table></div>' +
               (canUpdate ? '<div class="subtask-add-row"><input type="text" id="newSubtaskInput" placeholder="Add a subtask, then press Enter"><button type="button" class="btn btn-outline" id="addSubtaskBtn">+ Add</button></div>' : '') +
             '</div>' +
           '</div>' +
@@ -220,6 +221,7 @@
 
       renderActivity();
       renderSubtaskProgress();
+      renderSubtaskCostSummary();
       renderSubtaskList();
       renderMaterialsUsed();
       wireEvents();
@@ -260,22 +262,44 @@
       if (!listEl) return;
       var subtasks = task.subtasks || [];
       if (!subtasks.length) {
-        listEl.innerHTML = '<div class="empty-state compact" style="padding:14px 8px"><p>No subtasks yet. Break this task down into smaller steps below.</p></div>';
+        listEl.innerHTML = '<tr><td colspan="' + (canUpdate ? 6 : 5) + '"><div class="empty-state compact" style="padding:14px 8px"><p>No subtasks yet. Break this task down into smaller steps below.</p></div></td></tr>';
         return;
       }
       listEl.innerHTML = subtasks.map(function (s) {
-        return '<div class="subtask-row">' +
-          '<input type="checkbox" data-subtask-toggle="' + s.id + '"' + (s.done ? ' checked' : '') + (canUpdate ? '' : ' disabled') + '>' +
-          '<span class="subtask-title' + (s.done ? ' done' : '') + '">' + s.title + '</span>' +
-          (canUpdate ? '<button type="button" class="action-trigger" data-subtask-edit="' + s.id + '" title="Edit subtask">' + App.svg("edit") + '</button>' : '') +
-          (canUpdate ? '<button type="button" class="action-trigger" data-subtask-del="' + s.id + '" title="Remove subtask">' + App.svg("trash") + '</button>' : '') +
-        '</div>';
+        return '<tr class="subtask-table-row">' +
+          '<td><input type="checkbox" data-subtask-toggle="' + s.id + '"' + (s.done ? ' checked' : '') + (canUpdate ? '' : ' disabled') + '></td>' +
+          '<td><span class="subtask-title' + (s.done ? ' done' : '') + '">' + s.title + '</span></td>' +
+          '<td class="text-right">' + (s.area ? s.area : '—') + '</td>' +
+          '<td class="text-right">' + (s.ratePerUnit ? '₹' + s.ratePerUnit : '—') + '</td>' +
+          '<td class="total-amount text-right">' + (s.cost ? '₹' + s.cost.toLocaleString("en-IN") : '—') + '</td>' +
+          (canUpdate ?
+          '<td class="subtask-actions-cell">' +
+            '<button type="button" class="action-trigger" data-subtask-edit="' + s.id + '" title="Edit subtask">' + App.svg("edit") + '</button>' +
+            '<button type="button" class="action-trigger" data-subtask-del="' + s.id + '" title="Remove subtask">' + App.svg("trash") + '</button>' +
+          '</td>' : '') +
+        '</tr>';
       }).join("");
+    }
+
+    /* Rolls up the area and cost captured on each completed subtask (via the
+       Complete Subtask modal) so the total shows without opening every subtask. */
+    function renderSubtaskCostSummary() {
+      var summaryEl = document.getElementById("subtaskCostSummary");
+      if (!summaryEl) return;
+      var totals = subtaskCostTotals(task);
+      if (!totals.count || (!totals.area && !totals.cost)) {
+        summaryEl.innerHTML = "";
+        return;
+      }
+      summaryEl.innerHTML = '<div class="view-detail-grid" style="margin-bottom:14px">' +
+        '<div class="view-detail-item"><span>Area (from subtasks)</span><strong>' + totals.area + ' sqft</strong></div>' +
+        '<div class="view-detail-item"><span>Cost (from subtasks)</span><strong>₹' + totals.cost.toLocaleString("en-IN") + '</strong></div>' +
+      '</div>';
     }
 
     function editSubtaskInline(btn) {
       var id = btn.getAttribute("data-subtask-edit");
-      var row = btn.closest(".subtask-row");
+      var row = btn.closest(".subtask-table-row");
       var titleSpan = row.querySelector(".subtask-title");
       var currentTitle = titleSpan.textContent;
       var input = document.createElement("input");
@@ -317,6 +341,7 @@
       input.value = "";
       input.focus();
       renderSubtaskProgress();
+      renderSubtaskCostSummary();
       renderSubtaskList();
       renderActivity();
     }
@@ -331,22 +356,33 @@
       }).join(", ");
     }
 
+    /* Completion Details prefers the rolled-up totals from completed subtasks (area, cost,
+       and the rate that falls out of them) over the task-level sqft/completionCost fields —
+       those stay only as the fallback for tasks that were completed without any subtasks. */
     function completionDetailsHtml() {
+      var subtaskTotals = subtaskCostTotals(task);
+      var fromSubtasks = subtaskTotals.count > 0 && (subtaskTotals.area || subtaskTotals.cost);
+      var area = fromSubtasks ? subtaskTotals.area : (task.sqft || 0);
+      var cost = fromSubtasks ? subtaskTotals.cost : (task.completionCost || 0);
+      var rate = area && cost ? Math.round((cost / area) * 100) / 100 : 0;
+      var actualDuration = task.createdAt && task.completedAt ? Math.max(0, isoDaysBetween(task.createdAt, task.completedAt)) : null;
+      var duration = actualDuration !== null ? actualDuration : (task.durationDays || 0);
       return '<div class="field-group-divider" style="display:flex;justify-content:space-between;align-items:center">Completion Details' +
           (canUpdate ? '<button type="button" class="action-trigger" id="tdEditCompletionBtn" title="Edit completion details">' + App.svg("edit") + '</button>' : '') +
         '</div>' +
         '<div class="view-detail-grid">' +
-          '<div class="view-detail-item"><span>Area</span><strong>' + (task.sqft || 0) + ' sqft</strong></div>' +
-          '<div class="view-detail-item"><span>Cost</span><strong>₹' + (task.completionCost || 0) + '</strong></div>' +
+          '<div class="view-detail-item"><span>Area' + (fromSubtasks ? ' (from subtasks)' : '') + '</span><strong>' + area + ' sqft</strong></div>' +
+          '<div class="view-detail-item"><span>Cost' + (fromSubtasks ? ' (from subtasks)' : '') + '</span><strong>₹' + cost.toLocaleString("en-IN") + '</strong></div>' +
+          '<div class="view-detail-item"><span>Rate per unit</span><strong>' + (rate ? '₹' + rate.toLocaleString("en-IN") : '—') + '</strong></div>' +
           '<div class="view-detail-item"><span>No. of Persons</span><strong>' + (task.personsCount || 0) + '</strong></div>' +
           '<div class="view-detail-item"><span>Person in Charge</span><strong>' + (task.personInCharge || "—") + '</strong></div>' +
-          '<div class="view-detail-item"><span>Duration</span><strong>' + (task.durationDays || 0) + ' day(s)</strong></div>' +
+          '<div class="view-detail-item"><span>Duration' + (actualDuration !== null ? ' (created → completed)' : '') + '</span><strong>' + duration + ' day(s)</strong></div>' +
           '<div class="view-detail-item"><span>Material Used</span><strong>' + (materialsUsedSummary(task) || "—") + '</strong></div>' +
         '</div>';
     }
 
     var activityPage = 1;
-    var ACTIVITY_PAGE_SIZE = 8;
+    var ACTIVITY_PAGE_SIZE = 10;
 
     function renderActivity() {
       var entries = Data.getTaskActivity().filter(function (a) { return a.taskId === taskId; })
@@ -514,6 +550,7 @@
           saveTaskPatch({ subtasks: subtasks });
           Data.addTaskActivity(taskId, "Subtask reopened: " + st.title);
           renderSubtaskProgress();
+          renderSubtaskCostSummary();
           renderSubtaskList();
           renderActivity();
         });
@@ -528,6 +565,7 @@
           saveTaskPatch({ subtasks: subtasks });
           if (removed) Data.addTaskActivity(taskId, "Subtask removed: " + removed.title);
           renderSubtaskProgress();
+          renderSubtaskCostSummary();
           renderSubtaskList();
           renderActivity();
         });
@@ -631,6 +669,7 @@
       pendingSubtaskCompleteId = null;
       pendingSubtaskCheckbox = null;
       renderSubtaskProgress();
+      renderSubtaskCostSummary();
       renderSubtaskList();
       renderActivity();
       var allDone = subtasks.length > 0 && subtasks.every(function (s) { return s.done; });

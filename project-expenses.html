@@ -106,7 +106,7 @@
 <div class="modal-overlay" id="expModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Add Expense</h3><p>Transport, equipment, permits, utilities, supervisor salary & misc. Wage payments and a supervisor's monthly salary are recorded from the Wages tab and Users page and shown here automatically — use this form for one-off entries.</p></div>
+      <div><h3>Add Expense</h3><p>Transport, equipment, permits, utilities, supervisor salary, labour wages & misc. A supervisor's monthly salary is set on the Users page and shown here automatically — use this form for one-off entries, including labour wage payments.</p></div>
       <button class="modal-close" id="closeModal">&times;</button>
     </div>
     <div class="modal-body">
@@ -119,6 +119,7 @@
               <option value="permits_fees">Permits & Fees</option>
               <option value="utilities">Utilities</option>
               <option value="supervisor_salary">Supervisor Salary</option>
+              <option value="wages">Labour / Wages</option>
               <option value="misc">Miscellaneous</option>
             </select>
           </div>
@@ -174,7 +175,7 @@
   var project = Data.getProjects().find(function (p) { return p.id === projectId; });
   App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: "Expenses" });
 
-  var categoryLabels = { transport: "Transport", equipment_rental: "Equipment Rental", permits_fees: "Permits & Fees", utilities: "Utilities", misc: "Miscellaneous", wages: "Wages", supervisor_salary: "Supervisor Salary", task_completion: "Task Completion Cost" };
+  var categoryLabels = { transport: "Transport", equipment_rental: "Equipment Rental", permits_fees: "Permits & Fees", utilities: "Utilities", misc: "Miscellaneous", wages: "Labour / Wages", supervisor_salary: "Supervisor Salary", task_completion: "Task Completion Cost" };
   var categoryChip = { transport: "chip-blue", equipment_rental: "chip-amber", permits_fees: "chip-slate", utilities: "chip-green", misc: "chip-pink", wages: "chip-teal", supervisor_salary: "chip-purple", task_completion: "chip-orange" };
 
   if (!project || !App.guardProjectAccess(projectId)) {
