@@ -395,8 +395,9 @@
   var PROJECT_TABS = [
     { key: "overview", href: "project-overview.html", label: "Overview", icon: "dashboard" },
     { key: "tasks", href: "project-tasks.html", label: "Tasks", icon: "columns" },
-    { key: "labour", href: "project-labour.html", label: "Labour", icon: "people" },
-    { key: "wages", href: "project-wages.html", label: "Wages", icon: "coins" },
+    /* Labour and Wages tabs are hidden from project navigation — labour wage costs
+       are now entered manually from the Expenses tab (category: Labour / Wages)
+       instead of through the dedicated Labour/Wages pages. */
     { key: "stock", href: "project-stock.html", label: "Stock", icon: "box" },
     { key: "expenses", href: "project-expenses.html", label: "Expenses", icon: "wallet" },
     { key: "reports", href: "project-reports.html", label: "Reports", icon: "fileText" },

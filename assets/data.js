@@ -126,7 +126,7 @@
 
   function buildSeedUsers() {
     return [
-      { id: "u1", name: "Vijay Kumar", username: "vijay.kumar", email: "vijay@buildtrack.in", roleId: "r_admin", phone: "9840012345", assignedProjectIds: [], monthlySalary: 0 },
+      { id: "u1", name: "Vijay", username: "vijay.kumar", email: "vijay@buildtrack.in", roleId: "r_admin", phone: "9840012345", assignedProjectIds: [], monthlySalary: 0 },
       { id: "u2", name: "Ramesh Babu", username: "ramesh.babu", email: "ramesh@buildtrack.in", roleId: "r_supervisor", phone: "9840023456", assignedProjectIds: ["p1"], monthlySalary: 28000 },
       { id: "u3", name: "Suresh Raj", username: "suresh.raj", email: "suresh@buildtrack.in", roleId: "r_supervisor", phone: "9840034567", assignedProjectIds: ["p2"], monthlySalary: 26000 },
       { id: "u4", name: "Anitha Selvam", username: "anitha.selvam", email: "anitha@buildtrack.in", roleId: "r_supervisor", phone: "9840045678", assignedProjectIds: ["p1", "p3"], monthlySalary: 30000 },
