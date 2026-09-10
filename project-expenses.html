@@ -200,6 +200,12 @@
       '</div>' +
       '<div class="table-card" style="margin-top:20px">' +
         '<div class="table-toolbar"><span class="toolbar-meta">Every expense for this project — transport, equipment, permits, utilities, misc &amp; wages</span><button class="btn btn-outline" id="downloadBtn">' + App.svg("download") + ' Download</button></div>' +
+        '<form class="inline-add-form" id="expFilterForm" style="padding:0 16px 14px">' +
+          '<div class="field"><label>From</label><input type="date" id="expFromInput"></div>' +
+          '<div class="field"><label>To</label><input type="date" id="expToInput"></div>' +
+          '<button type="submit" class="btn btn-outline" style="padding:9px 16px">Apply</button>' +
+          '<button type="button" class="btn btn-outline" id="expFilterClear" style="padding:9px 16px">Clear</button>' +
+        '</form>' +
         '<div class="table-scroll"><table class="data-table"><thead><tr id="fullHeadRow"></tr></thead><tbody id="fullBody"></tbody><tfoot id="fullFoot"></tfoot></table></div>' +
         '<div class="panel-footer-row" style="justify-content:flex-end" id="fullPager"></div>' +
       '</div>';
@@ -214,6 +220,22 @@
     var fullSortState = { field: null, dir: "asc" };
     var fullPage = 1;
     var FULL_PAGE_SIZE = 10;
+    var expFrom = "", expTo = "";
+
+    document.getElementById("expFilterForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      expFrom = document.getElementById("expFromInput").value;
+      expTo = document.getElementById("expToInput").value;
+      fullPage = 1;
+      renderAll();
+    });
+    document.getElementById("expFilterClear").addEventListener("click", function () {
+      document.getElementById("expFromInput").value = "";
+      document.getElementById("expToInput").value = "";
+      expFrom = ""; expTo = "";
+      fullPage = 1;
+      renderAll();
+    });
 
     document.getElementById("fullHeadRow").innerHTML =
       App.sortableTh("Date", "date", fullSortState) +
@@ -299,15 +321,31 @@
 
       var fullBody = document.getElementById("fullBody");
       var fullFoot = document.getElementById("fullFoot");
-      if (!merged.length) {
-        fullBody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("wallet") + '<p>No expenses logged for this project yet.</p></div></td></tr>';
+
+      /* Opening balance = every expense dated before the selected "From" date, rolled into
+         one line — so picking, say, 3rd to 8th shows what was already spent on the 1st and
+         2nd as a starting balance, then just that window's own transactions below it. */
+      var openingBalance = expFrom ? merged.filter(function (e) { return e.date < expFrom; }).reduce(function (s, e) { return s + e.amount; }, 0) : 0;
+      var periodExpenses = merged.filter(function (e) {
+        if (expFrom && e.date < expFrom) return false;
+        if (expTo && e.date > expTo) return false;
+        return true;
+      });
+      var periodTotal = periodExpenses.reduce(function (s, e) { return s + e.amount; }, 0);
+      var isFiltered = !!(expFrom || expTo);
+
+      if (!periodExpenses.length) {
+        fullBody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("wallet") + '<p>' + (isFiltered ? "No expenses in this date range." : "No expenses logged for this project yet.") + '</p></div></td></tr>';
         fullFoot.innerHTML = "";
         document.getElementById("fullPager").innerHTML = "";
       } else {
-        var fullSorted = App.sortRows(merged, fullSortState.field ? fullSortState : { field: "date", dir: "desc" });
+        var fullSorted = App.sortRows(periodExpenses, fullSortState.field ? fullSortState : { field: "date", dir: "desc" });
         var pg = App.paginate(fullSorted, fullPage, FULL_PAGE_SIZE);
         fullPage = pg.page;
-        fullBody.innerHTML = pg.pageItems.map(function (e) {
+        var openingRow = (expFrom && pg.page === 1)
+          ? '<tr class="table-total-row"><td colspan="3">Opening balance (before ' + Data.displayDate(expFrom) + ')</td><td class="total-amount text-right">₹' + openingBalance.toLocaleString("en-IN") + '</td></tr>'
+          : '';
+        fullBody.innerHTML = openingRow + pg.pageItems.map(function (e) {
           return '<tr>' +
             '<td>' + Data.displayDate(e.date) + '</td>' +
             '<td><span class="chip ' + categoryChip[e.category] + '">' + categoryLabels[e.category] + '</span></td>' +
@@ -315,7 +353,11 @@
             '<td class="total-amount text-right">₹' + e.amount + '</td>' +
           '</tr>';
         }).join("");
-        fullFoot.innerHTML = '<tr class="table-total-row"><td colspan="3">Total (all categories)</td><td class="total-amount text-right">₹' + total.toLocaleString("en-IN") + '</td></tr>';
+        var footRows = '<tr class="table-total-row"><td colspan="3">' + (isFiltered ? "Total for this period" : "Total (all categories)") + '</td><td class="total-amount text-right">₹' + periodTotal.toLocaleString("en-IN") + '</td></tr>';
+        if (expFrom) {
+          footRows += '<tr class="table-total-row"><td colspan="3">Closing balance (through ' + (expTo ? Data.displayDate(expTo) : "today") + ')</td><td class="total-amount text-right">₹' + (openingBalance + periodTotal).toLocaleString("en-IN") + '</td></tr>';
+        }
+        fullFoot.innerHTML = footRows;
         App.renderPager(document.getElementById("fullPager"), fullPage, pg.totalPages, function (newPage) { fullPage = newPage; renderAll(); });
       }
     }
@@ -344,8 +386,8 @@
 
     var downloadModal = document.getElementById("downloadModal");
     document.getElementById("downloadBtn").addEventListener("click", function () {
-      document.getElementById("dlFrom").value = "";
-      document.getElementById("dlTo").value = Data.isoDate(Data.today());
+      document.getElementById("dlFrom").value = expFrom;
+      document.getElementById("dlTo").value = expTo || Data.isoDate(Data.today());
       document.getElementById("dlFormat").value = "pdf";
       document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-format") === "pdf"); });
       downloadModal.classList.add("show");
