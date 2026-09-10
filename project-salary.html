@@ -207,7 +207,13 @@
           '<td>' + (u ? u.name : "—") + '</td>' +
           '<td><span class="chip ' + (p.type === "advance" ? "chip-amber" : "chip-green") + '">' + (p.type === "advance" ? "Advance" : "Payment") + '</span></td>' +
           '<td class="total-amount">₹' + p.amount + '</td>' +
-          (canCreate ? '<td><button class="action-trigger" data-edit-payment="' + p.id + '" title="Edit payment">' + App.svg("edit") + '</button></td>' : '') +
+          (canCreate ? '<td><div class="row-actions">' +
+            '<button class="action-trigger" data-menu-toggle="' + p.id + '">' + App.svg("dots") + '</button>' +
+            '<div class="action-menu" data-menu="' + p.id + '">' +
+              '<button data-edit-payment="' + p.id + '">' + App.svg("edit") + ' Edit</button>' +
+              '<button class="danger" data-del-payment="' + p.id + '">' + App.svg("trash") + ' Delete</button>' +
+            '</div>' +
+          '</div></td>' : '') +
         '</tr>';
       }).join("");
       App.renderPager(document.getElementById("payPager"), payPage, pg.totalPages, function (newPage) { payPage = newPage; renderPayments(); });
@@ -287,12 +293,32 @@
     document.getElementById("cancelPayModal").addEventListener("click", function () { payModal.classList.remove("show"); });
     payModal.addEventListener("click", function (e) { if (e.target === payModal) payModal.classList.remove("show"); });
 
-    document.getElementById("payBody").addEventListener("click", function (e) {
-      var btn = e.target.closest("[data-edit-payment]");
-      if (!btn) return;
-      var payment = Data.getSalaryPayments().find(function (p) { return p.id === btn.getAttribute("data-edit-payment"); });
-      if (payment) openPayModal(payment);
+    var openMenuId = null;
+    document.addEventListener("click", function (e) {
+      var toggle = e.target.closest("[data-menu-toggle]");
+      document.querySelectorAll(".action-menu.show").forEach(function (m) { m.classList.remove("show"); });
+      if (toggle) {
+        var menuId = toggle.getAttribute("data-menu-toggle");
+        openMenuId = menuId;
+        App.positionActionMenu(menuId);
+        document.querySelector('[data-menu="' + menuId + '"]').classList.add("show");
+        return;
+      }
+      var editBtn = e.target.closest("[data-edit-payment]");
+      if (editBtn) {
+        var payment = Data.getSalaryPayments().find(function (p) { return p.id === editBtn.getAttribute("data-edit-payment"); });
+        if (payment) openPayModal(payment);
+        return;
+      }
+      var delBtn = e.target.closest("[data-del-payment]");
+      if (delBtn) {
+        if (!confirm("Delete this payment?")) return;
+        Data.saveSalaryPayments(Data.getSalaryPayments().filter(function (p) { return p.id !== delBtn.getAttribute("data-del-payment"); }));
+        App.showToast("Payment deleted");
+        renderAll();
+      }
     });
+    window.addEventListener("scroll", function () { if (openMenuId) App.positionActionMenu(openMenuId); }, true);
 
     document.getElementById("savePayBtn").addEventListener("click", function () {
       var userId = document.getElementById("payUserId").value;

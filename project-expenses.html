@@ -106,7 +106,7 @@
 <div class="modal-overlay" id="expModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Add Expense</h3><p>Transport, equipment, permits, utilities, supervisor salary, labour wages & misc. A supervisor's monthly salary is set on the Users page and shown here automatically — use this form for one-off entries, including labour wage payments.</p></div>
+      <div><h3 id="expModalTitle">Add Expense</h3><p>Transport, equipment, permits, utilities, supervisor salary, labour wages & misc. A supervisor's monthly salary is set on the Users page and shown here automatically — use this form for one-off entries, including labour wage payments.</p></div>
       <button class="modal-close" id="closeModal">&times;</button>
     </div>
     <div class="modal-body">
@@ -186,6 +186,7 @@
     document.getElementById("projMeta").textContent = project.code;
     document.getElementById("tabsMount").innerHTML = App.projectTabsHtml(projectId, "expenses");
     var canDelete = App.can("expenses", "delete");
+    var canUpdate = App.can("expenses", "update");
 
     document.getElementById("pageBody").innerHTML =
       '<div class="stat-grid stat-grid-tight" id="statGrid"></div>' +
@@ -241,7 +242,8 @@
       App.sortableTh("Date", "date", fullSortState) +
       App.sortableTh("Category", "category", fullSortState) +
       '<th>Description</th>' +
-      App.sortableTh("Amount", "amount", fullSortState, "text-right");
+      App.sortableTh("Amount", "amount", fullSortState, "text-right") +
+      ((canUpdate || canDelete) ? '<th></th>' : '');
     App.wireSort(document.getElementById("fullHeadRow"), fullSortState, function () { fullPage = 1; renderAll(); });
 
     function renderAll() {
@@ -255,7 +257,7 @@
       var today = Data.isoDate(Data.today());
 
       var merged = expenses.map(function (e) {
-        return { date: e.date, category: e.category, description: e.description, amount: e.amount, id: e.id, isWage: false };
+        return { date: e.date, category: e.category, description: e.description, amount: e.amount, id: e.id, isWage: false, taskId: e.taskId };
       }).concat(wagePayments.map(function (p) {
         var lab = labourers.find(function (l) { return l.id === p.labourerId; });
         return {
@@ -334,28 +336,56 @@
       var periodTotal = periodExpenses.reduce(function (s, e) { return s + e.amount; }, 0);
       var isFiltered = !!(expFrom || expTo);
 
+      var hasActionsCol = canUpdate || canDelete;
+      var summaryColspan = hasActionsCol ? 4 : 3;
       if (!periodExpenses.length) {
-        fullBody.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("wallet") + '<p>' + (isFiltered ? "No expenses in this date range." : "No expenses logged for this project yet.") + '</p></div></td></tr>';
+        fullBody.innerHTML = '<tr><td colspan="' + (hasActionsCol ? 5 : 4) + '"><div class="empty-state compact">' + App.svg("wallet") + '<p>' + (isFiltered ? "No expenses in this date range." : "No expenses logged for this project yet.") + '</p></div></td></tr>';
         fullFoot.innerHTML = "";
         document.getElementById("fullPager").innerHTML = "";
       } else {
         var fullSorted = App.sortRows(periodExpenses, fullSortState.field ? fullSortState : { field: "date", dir: "desc" });
         var pg = App.paginate(fullSorted, fullPage, FULL_PAGE_SIZE);
         fullPage = pg.page;
+        var amountColspan = hasActionsCol ? 2 : 1;
         var openingRow = (expFrom && pg.page === 1)
-          ? '<tr class="table-total-row"><td colspan="3">Opening balance (before ' + Data.displayDate(expFrom) + ')</td><td class="total-amount text-right">₹' + openingBalance.toLocaleString("en-IN") + '</td></tr>'
+          ? '<tr class="table-total-row"><td colspan="' + summaryColspan + '">Opening balance (before ' + Data.displayDate(expFrom) + ')</td><td class="total-amount text-right" colspan="' + amountColspan + '">₹' + openingBalance.toLocaleString("en-IN") + '</td></tr>'
           : '';
         fullBody.innerHTML = openingRow + pg.pageItems.map(function (e) {
+          /* Only genuine Data.getExpenses() rows are editable here — wage/salary payments and the
+             synthetic monthly supervisor-salary line belong to their own pages, and task-completion
+             costs are auto-derived (their category isn't even a choice in this form). For those,
+             point to wherever they're actually editable instead of leaving the cell blank. */
+          var editable = canUpdate && !e.isWage && !e.isSalary && !e.isSupervisorSalary && e.category !== "task_completion";
+          var actionsCell;
+          if (!hasActionsCol) {
+            actionsCell = '';
+          } else if (editable) {
+            actionsCell =
+              '<td><div class="row-actions">' +
+                '<button class="action-trigger" data-menu-toggle="' + e.id + '">' + App.svg("dots") + '</button>' +
+                '<div class="action-menu" data-menu="' + e.id + '">' +
+                  (canUpdate ? '<button data-edit-expense="' + e.id + '">' + App.svg("edit") + ' Edit</button>' : '') +
+                  (canDelete ? '<button class="danger" data-del-expense="' + e.id + '">' + App.svg("trash") + ' Delete</button>' : '') +
+                '</div>' +
+              '</div></td>';
+          } else {
+            var elsewhere = e.isWage ? { href: "project-wages.html?id=" + projectId, label: "Wages" }
+              : (e.isSalary || e.isSupervisorSalary) ? { href: "project-salary.html?id=" + projectId, label: "Salary" }
+              : (e.category === "task_completion" && e.taskId) ? { href: "project-task-detail.html?id=" + projectId + "&task=" + e.taskId, label: "Task" }
+              : null;
+            actionsCell = '<td>' + (elsewhere ? '<a class="link-btn" href="' + elsewhere.href + '" style="font-size:11.5px;white-space:nowrap">Edit on ' + elsewhere.label + ' &rarr;</a>' : '') + '</td>';
+          }
           return '<tr>' +
             '<td>' + Data.displayDate(e.date) + '</td>' +
             '<td><span class="chip ' + categoryChip[e.category] + '">' + categoryLabels[e.category] + '</span></td>' +
             '<td><span class="desc-cell" title="' + (e.description || "") + '">' + (e.description || "—") + '</span></td>' +
             '<td class="total-amount text-right">₹' + e.amount + '</td>' +
+            actionsCell +
           '</tr>';
         }).join("");
-        var footRows = '<tr class="table-total-row"><td colspan="3">' + (isFiltered ? "Total for this period" : "Total (all categories)") + '</td><td class="total-amount text-right">₹' + periodTotal.toLocaleString("en-IN") + '</td></tr>';
+        var footRows = '<tr class="table-total-row"><td colspan="' + summaryColspan + '">' + (isFiltered ? "Total for this period" : "Total (all categories)") + '</td><td class="total-amount text-right" colspan="' + amountColspan + '">₹' + periodTotal.toLocaleString("en-IN") + '</td></tr>';
         if (expFrom) {
-          footRows += '<tr class="table-total-row"><td colspan="3">Closing balance (through ' + (expTo ? Data.displayDate(expTo) : "today") + ')</td><td class="total-amount text-right">₹' + (openingBalance + periodTotal).toLocaleString("en-IN") + '</td></tr>';
+          footRows += '<tr class="table-total-row"><td colspan="' + summaryColspan + '">Closing balance (through ' + (expTo ? Data.displayDate(expTo) : "today") + ')</td><td class="total-amount text-right" colspan="' + amountColspan + '">₹' + (openingBalance + periodTotal).toLocaleString("en-IN") + '</td></tr>';
         }
         fullFoot.innerHTML = footRows;
         App.renderPager(document.getElementById("fullPager"), fullPage, pg.totalPages, function (newPage) { fullPage = newPage; renderAll(); });
@@ -363,23 +393,76 @@
     }
 
     var modal = document.getElementById("expModal");
-    document.getElementById("addBtn").addEventListener("click", function () { modal.classList.add("show"); });
+    var editExpenseId = null;
+    function openExpModal(exp) {
+      editExpenseId = exp ? exp.id : null;
+      document.getElementById("expModalTitle").textContent = exp ? "Edit Expense" : "Add Expense";
+      document.getElementById("saveBtn").textContent = exp ? "Save Changes" : "Save Expense";
+      document.getElementById("expForm").reset();
+      if (exp) {
+        document.getElementById("fCategory").value = exp.category;
+        document.getElementById("fAmount").value = exp.amount;
+        document.getElementById("fDate").value = exp.date;
+        document.getElementById("fDesc").value = exp.description || "";
+      } else {
+        document.getElementById("fDate").value = Data.isoDate(Data.today());
+      }
+      modal.classList.add("show");
+    }
+    document.getElementById("addBtn").addEventListener("click", function () { openExpModal(null); });
     document.getElementById("closeModal").addEventListener("click", function () { modal.classList.remove("show"); });
     document.getElementById("cancelModal").addEventListener("click", function () { modal.classList.remove("show"); });
     modal.addEventListener("click", function (e) { if (e.target === modal) modal.classList.remove("show"); });
+
+    var openMenuId = null;
+    document.addEventListener("click", function (e) {
+      var toggle = e.target.closest("[data-menu-toggle]");
+      document.querySelectorAll(".action-menu.show").forEach(function (m) { m.classList.remove("show"); });
+      if (toggle) {
+        var menuId = toggle.getAttribute("data-menu-toggle");
+        openMenuId = menuId;
+        App.positionActionMenu(menuId);
+        document.querySelector('[data-menu="' + menuId + '"]').classList.add("show");
+        return;
+      }
+      var editBtn = e.target.closest("[data-edit-expense]");
+      if (editBtn) {
+        var exp = Data.getExpenses().find(function (x) { return x.id === editBtn.getAttribute("data-edit-expense"); });
+        if (exp) openExpModal(exp);
+        return;
+      }
+      var delBtn = e.target.closest("[data-del-expense]");
+      if (delBtn) {
+        if (!confirm("Delete this expense?")) return;
+        Data.saveExpenses(Data.getExpenses().filter(function (x) { return x.id !== delBtn.getAttribute("data-del-expense"); }));
+        App.showToast("Expense deleted");
+        renderAll();
+      }
+    });
+    window.addEventListener("scroll", function () { if (openMenuId) App.positionActionMenu(openMenuId); }, true);
 
     document.getElementById("saveBtn").addEventListener("click", function () {
       var amount = Number(document.getElementById("fAmount").value);
       if (!amount) { App.showToast("Enter an amount", true); return; }
       var expenses = Data.getExpenses();
-      expenses.push({
-        id: Data.uid("ex"), projectId: projectId, category: document.getElementById("fCategory").value,
-        amount: amount, date: document.getElementById("fDate").value, description: document.getElementById("fDesc").value.trim()
-      });
+      if (editExpenseId) {
+        expenses = expenses.map(function (x) {
+          return x.id === editExpenseId ? Object.assign({}, x, {
+            category: document.getElementById("fCategory").value, amount: amount,
+            date: document.getElementById("fDate").value, description: document.getElementById("fDesc").value.trim()
+          }) : x;
+        });
+      } else {
+        expenses.push({
+          id: Data.uid("ex"), projectId: projectId, category: document.getElementById("fCategory").value,
+          amount: amount, date: document.getElementById("fDate").value, description: document.getElementById("fDesc").value.trim()
+        });
+      }
       Data.saveExpenses(expenses);
-      App.showToast("Expense added");
+      App.showToast(editExpenseId ? "Expense updated" : "Expense added");
       document.getElementById("expForm").reset();
       document.getElementById("fDate").value = Data.isoDate(Data.today());
+      editExpenseId = null;
       modal.classList.remove("show");
       renderAll();
     });
