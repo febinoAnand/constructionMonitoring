@@ -175,8 +175,8 @@
   var project = Data.getProjects().find(function (p) { return p.id === projectId; });
   App.renderShell({ active: "projects", title: project ? project.name : "Project", subtitle: "Expenses" });
 
-  var categoryLabels = { transport: "Transport", equipment_rental: "Equipment Rental", permits_fees: "Permits & Fees", utilities: "Utilities", misc: "Miscellaneous", wages: "Labour / Wages", supervisor_salary: "Supervisor Salary", task_completion: "Task Completion Cost" };
-  var categoryChip = { transport: "chip-blue", equipment_rental: "chip-amber", permits_fees: "chip-slate", utilities: "chip-green", misc: "chip-pink", wages: "chip-teal", supervisor_salary: "chip-purple", task_completion: "chip-orange" };
+  var categoryLabels = { transport: "Transport", equipment_rental: "Equipment Rental", permits_fees: "Permits & Fees", utilities: "Utilities", misc: "Miscellaneous", wages: "Labour / Wages", salary: "Salary", supervisor_salary: "Supervisor Salary", task_completion: "Task Completion Cost" };
+  var categoryChip = { transport: "chip-blue", equipment_rental: "chip-amber", permits_fees: "chip-slate", utilities: "chip-green", misc: "chip-pink", wages: "chip-teal", salary: "chip-cyan", supervisor_salary: "chip-purple", task_completion: "chip-orange" };
 
   if (!project || !App.guardProjectAccess(projectId)) {
     document.getElementById("projName").textContent = project ? "Access restricted" : "Project not found";
@@ -225,7 +225,9 @@
     function renderAll() {
       var expenses = Data.getExpenses().filter(function (e) { return e.projectId === projectId; });
       var wagePayments = Data.getWagePayments().filter(function (p) { return p.projectId === projectId; });
+      var salaryPayments = Data.getSalaryPayments().filter(function (p) { return p.projectId === projectId; });
       var labourers = Data.getLabourers();
+      var allUsers = Data.getUsers();
 
       var supervisors = Business.getSupervisorsForProject(projectId);
       var today = Data.isoDate(Data.today());
@@ -238,6 +240,13 @@
           date: p.date, category: "wages",
           description: (p.type === "advance" ? "Advance to " : "Wage payment to ") + (lab ? lab.name : "labourer") + (p.notes ? " — " + p.notes : ""),
           amount: p.amount, id: p.id, isWage: true
+        };
+      })).concat(salaryPayments.map(function (p) {
+        var u = allUsers.find(function (x) { return x.id === p.userId; });
+        return {
+          date: p.date, category: "salary",
+          description: (p.type === "advance" ? "Advance to " : "Salary payment to ") + (u ? u.name : "user") + (p.notes ? " — " + p.notes : ""),
+          amount: p.amount, id: p.id, isSalary: true
         };
       })).concat(supervisors.filter(function (u) { return u.monthlySalary; }).map(function (u) {
         return {

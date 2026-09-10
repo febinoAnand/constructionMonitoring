@@ -189,7 +189,7 @@
       );
       var body = document.getElementById("payBody");
       if (!payments.length) {
-        body.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("coins") + '<p>No payments recorded yet.</p></div></td></tr>';
+        body.innerHTML = '<tr><td colspan="' + (canCreate ? 5 : 4) + '"><div class="empty-state compact">' + App.svg("coins") + '<p>No payments recorded yet.</p></div></td></tr>';
         document.getElementById("payPager").innerHTML = "";
         return;
       }
@@ -202,6 +202,7 @@
           '<td>' + (lab ? lab.name : "—") + '</td>' +
           '<td><span class="chip ' + (p.type === "advance" ? "chip-amber" : "chip-green") + '">' + (p.type === "advance" ? "Advance" : "Payment") + '</span></td>' +
           '<td class="total-amount">₹' + p.amount + '</td>' +
+          (canCreate ? '<td><button class="action-trigger" data-edit-payment="' + p.id + '" title="Edit payment">' + App.svg("edit") + '</button></td>' : '') +
         '</tr>';
       }).join("");
       App.renderPager(document.getElementById("payPager"), payPage, pg.totalPages, function (newPage) { payPage = newPage; renderPayments(); });
@@ -245,27 +246,64 @@
     function renderAll() { renderStats(); renderPayments(); renderSummary(); }
 
     var payModal = document.getElementById("payModal");
+    var editPayId = null;
+    function openPayModal(payment) {
+      editPayId = payment ? payment.id : null;
+      document.getElementById("payModalTitle").textContent = payment ? "Edit Wage Payment" : "Record Wage Payment";
+      document.getElementById("savePayBtn").textContent = payment ? "Save Changes" : "Save Payment";
+      document.getElementById("payForm").reset();
+      if (payment) {
+        var lab = Data.getLabourers().find(function (l) { return l.id === payment.labourerId; });
+        document.getElementById("payLabInput").value = lab ? lab.name : "";
+        document.getElementById("payLabId").value = payment.labourerId;
+        document.getElementById("payType").value = payment.type;
+        document.getElementById("payAmount").value = payment.amount;
+        document.getElementById("payDate").value = payment.date;
+        document.getElementById("payNotes").value = payment.notes || "";
+      } else {
+        document.getElementById("payLabId").value = "";
+        document.getElementById("payDate").value = Data.isoDate(Data.today());
+      }
+      payModal.classList.add("show");
+    }
     var addPayBtnEl = document.getElementById("addPayBtn");
-    if (addPayBtnEl) addPayBtnEl.addEventListener("click", function () { payModal.classList.add("show"); });
+    if (addPayBtnEl) addPayBtnEl.addEventListener("click", function () { openPayModal(null); });
     document.getElementById("closePayModal").addEventListener("click", function () { payModal.classList.remove("show"); });
     document.getElementById("cancelPayModal").addEventListener("click", function () { payModal.classList.remove("show"); });
     payModal.addEventListener("click", function (e) { if (e.target === payModal) payModal.classList.remove("show"); });
+
+    document.getElementById("payBody").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-edit-payment]");
+      if (!btn) return;
+      var payment = Data.getWagePayments().find(function (p) { return p.id === btn.getAttribute("data-edit-payment"); });
+      if (payment) openPayModal(payment);
+    });
 
     document.getElementById("savePayBtn").addEventListener("click", function () {
       var labId = document.getElementById("payLabId").value;
       var amount = Number(document.getElementById("payAmount").value);
       if (!labId || !amount) { App.showToast("Pick a labourer and enter an amount", true); return; }
       var payments = Data.getWagePayments();
-      payments.push({
-        id: Data.uid("wp"), labourerId: labId, projectId: projectId,
-        amount: amount, type: document.getElementById("payType").value,
-        date: document.getElementById("payDate").value, notes: document.getElementById("payNotes").value.trim()
-      });
+      if (editPayId) {
+        payments = payments.map(function (p) {
+          return p.id === editPayId ? Object.assign({}, p, {
+            labourerId: labId, amount: amount, type: document.getElementById("payType").value,
+            date: document.getElementById("payDate").value, notes: document.getElementById("payNotes").value.trim()
+          }) : p;
+        });
+      } else {
+        payments.push({
+          id: Data.uid("wp"), labourerId: labId, projectId: projectId,
+          amount: amount, type: document.getElementById("payType").value,
+          date: document.getElementById("payDate").value, notes: document.getElementById("payNotes").value.trim()
+        });
+      }
       Data.saveWagePayments(payments);
-      App.showToast("Payment recorded");
+      App.showToast(editPayId ? "Payment updated" : "Payment recorded");
       document.getElementById("payForm").reset();
       document.getElementById("payLabId").value = "";
       document.getElementById("payDate").value = Data.isoDate(Data.today());
+      editPayId = null;
       payModal.classList.remove("show");
       renderAll();
     });

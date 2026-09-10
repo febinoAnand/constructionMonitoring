@@ -29,7 +29,7 @@
 <div class="modal-overlay" id="payModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div><h3>Record Salary Payment</h3><p>Advance or settlement payment to a user assigned to this project.</p></div>
+      <div><h3 id="payModalTitle">Record Salary Payment</h3><p>Advance or settlement payment to a user assigned to this project.</p></div>
       <button class="modal-close" id="closePayModal">&times;</button>
     </div>
     <div class="modal-body">
@@ -142,7 +142,8 @@
       App.sortableTh("Date", "date", paySortState) +
       App.sortableTh("User", "userName", paySortState) +
       App.sortableTh("Type", "type", paySortState) +
-      App.sortableTh("Amount", "amount", paySortState);
+      App.sortableTh("Amount", "amount", paySortState) +
+      (canCreate ? '<th></th>' : '');
     App.wireSort(document.getElementById("payHeadRow"), paySortState, function () { payPage = 1; renderPayments(); });
 
     document.getElementById("payDate").value = Data.isoDate(Data.today());
@@ -193,7 +194,7 @@
       );
       var body = document.getElementById("payBody");
       if (!payments.length) {
-        body.innerHTML = '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("briefcase") + '<p>No salary payments recorded yet.</p></div></td></tr>';
+        body.innerHTML = '<tr><td colspan="' + (canCreate ? 5 : 4) + '"><div class="empty-state compact">' + App.svg("briefcase") + '<p>No salary payments recorded yet.</p></div></td></tr>';
         document.getElementById("payPager").innerHTML = "";
         return;
       }
@@ -206,6 +207,7 @@
           '<td>' + (u ? u.name : "—") + '</td>' +
           '<td><span class="chip ' + (p.type === "advance" ? "chip-amber" : "chip-green") + '">' + (p.type === "advance" ? "Advance" : "Payment") + '</span></td>' +
           '<td class="total-amount">₹' + p.amount + '</td>' +
+          (canCreate ? '<td><button class="action-trigger" data-edit-payment="' + p.id + '" title="Edit payment">' + App.svg("edit") + '</button></td>' : '') +
         '</tr>';
       }).join("");
       App.renderPager(document.getElementById("payPager"), payPage, pg.totalPages, function (newPage) { payPage = newPage; renderPayments(); });
@@ -259,27 +261,64 @@
     });
 
     var payModal = document.getElementById("payModal");
+    var editPayId = null;
+    function openPayModal(payment) {
+      editPayId = payment ? payment.id : null;
+      document.getElementById("payModalTitle").textContent = payment ? "Edit Salary Payment" : "Record Salary Payment";
+      document.getElementById("savePayBtn").textContent = payment ? "Save Changes" : "Save Payment";
+      document.getElementById("payForm").reset();
+      if (payment) {
+        var u = Data.getUsers().find(function (x) { return x.id === payment.userId; });
+        document.getElementById("payUserInput").value = u ? u.name : "";
+        document.getElementById("payUserId").value = payment.userId;
+        document.getElementById("payType").value = payment.type;
+        document.getElementById("payAmount").value = payment.amount;
+        document.getElementById("payDate").value = payment.date;
+        document.getElementById("payNotes").value = payment.notes || "";
+      } else {
+        document.getElementById("payUserId").value = "";
+        document.getElementById("payDate").value = Data.isoDate(Data.today());
+      }
+      payModal.classList.add("show");
+    }
     var addPayBtnEl = document.getElementById("addPayBtn");
-    if (addPayBtnEl) addPayBtnEl.addEventListener("click", function () { payModal.classList.add("show"); });
+    if (addPayBtnEl) addPayBtnEl.addEventListener("click", function () { openPayModal(null); });
     document.getElementById("closePayModal").addEventListener("click", function () { payModal.classList.remove("show"); });
     document.getElementById("cancelPayModal").addEventListener("click", function () { payModal.classList.remove("show"); });
     payModal.addEventListener("click", function (e) { if (e.target === payModal) payModal.classList.remove("show"); });
+
+    document.getElementById("payBody").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-edit-payment]");
+      if (!btn) return;
+      var payment = Data.getSalaryPayments().find(function (p) { return p.id === btn.getAttribute("data-edit-payment"); });
+      if (payment) openPayModal(payment);
+    });
 
     document.getElementById("savePayBtn").addEventListener("click", function () {
       var userId = document.getElementById("payUserId").value;
       var amount = Number(document.getElementById("payAmount").value);
       if (!userId || !amount) { App.showToast("Pick a user and enter an amount", true); return; }
       var payments = Data.getSalaryPayments();
-      payments.push({
-        id: Data.uid("sp"), userId: userId, projectId: projectId,
-        amount: amount, type: document.getElementById("payType").value,
-        date: document.getElementById("payDate").value, notes: document.getElementById("payNotes").value.trim()
-      });
+      if (editPayId) {
+        payments = payments.map(function (p) {
+          return p.id === editPayId ? Object.assign({}, p, {
+            userId: userId, amount: amount, type: document.getElementById("payType").value,
+            date: document.getElementById("payDate").value, notes: document.getElementById("payNotes").value.trim()
+          }) : p;
+        });
+      } else {
+        payments.push({
+          id: Data.uid("sp"), userId: userId, projectId: projectId,
+          amount: amount, type: document.getElementById("payType").value,
+          date: document.getElementById("payDate").value, notes: document.getElementById("payNotes").value.trim()
+        });
+      }
       Data.saveSalaryPayments(payments);
-      App.showToast("Payment recorded");
+      App.showToast(editPayId ? "Payment updated" : "Payment recorded");
       document.getElementById("payForm").reset();
       document.getElementById("payUserId").value = "";
       document.getElementById("payDate").value = Data.isoDate(Data.today());
+      editPayId = null;
       payModal.classList.remove("show");
       renderAll();
     });
