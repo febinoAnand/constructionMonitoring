@@ -55,6 +55,32 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="editTxnModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Edit Stock Transaction</h3><p id="editTxnSubtitle">Correct the quantity, rate, or date recorded for this movement.</p></div>
+      <button class="modal-close" id="closeEditTxnModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="editTxnForm">
+        <div class="field-grid">
+          <div class="field"><label>Quantity</label><input type="number" id="etQty" min="0" step="0.01"></div>
+          <div class="field"><label>Rate / unit (₹)</label><input type="number" id="etRate" min="0" step="0.01"></div>
+          <div class="field"><label>Date</label><input type="date" id="etDate"></div>
+          <div class="field" id="etSupplierWrap"><label>Supplier</label><input type="text" id="etSupplier"></div>
+          <div class="field" id="etBillNoWrap"><label>Bill No.</label><input type="text" id="etBillNo"></div>
+          <div class="field" id="etGstWrap"><label>GST (%)</label><input type="number" id="etGst" min="0" step="0.01"></div>
+          <div class="field full"><span class="field-hint" id="etAmountPreview"></span></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelEditTxnModal">Cancel</button>
+      <button class="btn btn-primary" id="saveEditTxnBtn">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <script src="assets/data.js"></script>
 <script src="assets/business.js"></script>
 <script src="assets/app.js"></script>
@@ -78,6 +104,7 @@
     var otherProjectOptions = otherProjects.map(function (p) { return '<option value="' + p.id + '">' + p.name + ' (' + p.code + ')</option>'; }).join("");
     var canCreate = App.can("stock", "create");
     var canDelete = App.can("stock", "delete");
+    var canUpdate = App.can("stock", "update");
 
     document.getElementById("pageBody").innerHTML =
       (canCreate ?
@@ -158,7 +185,7 @@
       App.sortableTh("Quantity", "quantity", txnSortState) +
       App.sortableTh("Amount", "totalAmount", txnSortState, "text-right") +
       '<th>Supplier / Notes</th>' +
-      (canDelete ? '<th></th>' : '');
+      ((canDelete || canUpdate) ? '<th></th>' : '');
     App.wireSort(document.getElementById("txnHeadRow"), txnSortState, function () { txnPage = 1; renderTxns(); });
 
     if (document.getElementById("sDate")) document.getElementById("sDate").value = Data.isoDate(Data.today());
@@ -223,14 +250,15 @@
       document.getElementById("txnCount").textContent = txns.length + " entries";
       var body = document.getElementById("txnBody");
       var foot = document.getElementById("txnFoot");
+      var hasTxnActionsCol = canDelete || canUpdate;
       if (!txns.length) {
-        body.innerHTML = '<tr><td colspan="9"><div class="empty-state compact">' + App.svg("truck") + '<p>No stock movements recorded yet.</p></div></td></tr>';
+        body.innerHTML = '<tr><td colspan="' + (hasTxnActionsCol ? 9 : 8) + '"><div class="empty-state compact">' + App.svg("truck") + '<p>No stock movements recorded yet.</p></div></td></tr>';
         foot.innerHTML = "";
         document.getElementById("txnPager").innerHTML = "";
         return;
       }
       var billingTotal = allTxns.filter(function (t) { return t.type === "inward"; }).reduce(function (s, t) { return s + t.totalAmount; }, 0);
-      foot.innerHTML = '<tr class="table-total-row"><td colspan="6">Total billing for ' + project.name + '</td><td class="total-amount text-right">₹' + billingTotal.toLocaleString("en-IN") + '</td><td colspan="' + (canDelete ? 2 : 1) + '"></td></tr>';
+      foot.innerHTML = '<tr class="table-total-row"><td colspan="6">Total billing for ' + project.name + '</td><td class="total-amount text-right">₹' + billingTotal.toLocaleString("en-IN") + '</td><td colspan="' + (hasTxnActionsCol ? 2 : 1) + '"></td></tr>';
       var pg = App.paginate(txns, txnPage, TXN_PAGE_SIZE);
       txnPage = pg.page;
       body.innerHTML = pg.pageItems.map(function (t) {
@@ -257,7 +285,13 @@
           '<td>' + t.quantity + ' ' + (mat ? mat.unit : "") + '</td>' +
           '<td class="total-amount text-right">' + amountHtml + '</td>' +
           '<td><span class="desc-cell">' + (t.supplierName || t.notes || "—") + '</span></td>' +
-          (canDelete ? '<td><button class="action-trigger" data-del="' + t.id + '">' + App.svg("trash") + '</button></td>' : '') +
+          (hasTxnActionsCol ? '<td><div class="row-actions">' +
+            '<button class="action-trigger" data-menu-toggle="' + t.id + '">' + App.svg("dots") + '</button>' +
+            '<div class="action-menu" data-menu="' + t.id + '">' +
+              (canUpdate ? '<button data-edit-txn="' + t.id + '">' + App.svg("edit") + ' Edit</button>' : '') +
+              (canDelete ? '<button class="danger" data-del="' + t.id + '">' + App.svg("trash") + ' Delete</button>' : '') +
+            '</div>' +
+          '</div></td>' : '') +
         '</tr>';
       }).join("");
 
@@ -426,11 +460,105 @@
       renderAll();
     });
 
-    document.getElementById("txnBody").addEventListener("click", function (e) {
-      var btn = e.target.closest("[data-del]");
-      if (!btn) return;
-      Data.saveStockTransactions(Data.getStockTransactions().filter(function (t) { return t.id !== btn.getAttribute("data-del"); }));
-      App.showToast("Entry removed");
+    var openMenuId = null;
+    document.addEventListener("click", function (e) {
+      var toggle = e.target.closest("[data-menu-toggle]");
+      document.querySelectorAll(".action-menu.show").forEach(function (m) { m.classList.remove("show"); });
+      if (toggle) {
+        var menuId = toggle.getAttribute("data-menu-toggle");
+        openMenuId = menuId;
+        App.positionActionMenu(menuId);
+        document.querySelector('[data-menu="' + menuId + '"]').classList.add("show");
+        return;
+      }
+      var editBtn = e.target.closest("[data-edit-txn]");
+      if (editBtn) {
+        var txn = Data.getStockTransactions().find(function (t) { return t.id === editBtn.getAttribute("data-edit-txn"); });
+        if (txn) openEditTxnModal(txn);
+        return;
+      }
+      var delBtn = e.target.closest("[data-del]");
+      if (delBtn) {
+        Data.saveStockTransactions(Data.getStockTransactions().filter(function (t) { return t.id !== delBtn.getAttribute("data-del"); }));
+        App.showToast("Entry removed");
+        renderAll();
+      }
+    });
+    window.addEventListener("scroll", function () { if (openMenuId) App.positionActionMenu(openMenuId); }, true);
+
+    /* Edit is intentionally limited to quantity/rate/date (and supplier/bill/GST for a plain
+       vendor purchase) — never material, type, or source, since re-pointing those could corrupt
+       the stock balance math in ways a simple form can't safely reconcile. A transfer or
+       godown-received entry is one half of a linked pair (same transferId, mirrored on the other
+       project/godown); editing it updates both sides together so the ledger stays balanced. */
+    var editTxnModal = document.getElementById("editTxnModal");
+    var editTxnId = null;
+    function recalcEtAmount() {
+      var qty = Number(document.getElementById("etQty").value) || 0;
+      var rate = Number(document.getElementById("etRate").value) || 0;
+      var gst = document.getElementById("etGstWrap").style.display === "none" ? 0 : (Number(document.getElementById("etGst").value) || 0);
+      var subtotal = qty * rate;
+      var gstAmount = Math.round(subtotal * gst / 100);
+      document.getElementById("etAmountPreview").textContent = "Amount: ₹" + Math.round(subtotal + gstAmount);
+    }
+    function openEditTxnModal(t) {
+      editTxnId = t.id;
+      var mat = materials.find(function (m) { return m.id === t.materialId; });
+      var typeLabel = t.type === "inward" ? "Inward" : t.type === "outward" ? "Outward" : "Adjustment";
+      document.getElementById("editTxnSubtitle").textContent = (mat ? mat.name : "Material") + " — " + typeLabel +
+        (t.transferId ? " (linked movement — both sides will be kept in sync)" : "");
+      document.getElementById("etQty").value = t.quantity;
+      document.getElementById("etRate").value = t.ratePerUnit || 0;
+      document.getElementById("etDate").value = t.date;
+      var isVendorPurchase = t.type === "inward" && t.source !== "transfer" && t.source !== "godown";
+      document.getElementById("etSupplierWrap").style.display = isVendorPurchase ? "" : "none";
+      document.getElementById("etBillNoWrap").style.display = isVendorPurchase ? "" : "none";
+      document.getElementById("etGstWrap").style.display = isVendorPurchase ? "" : "none";
+      document.getElementById("etSupplier").value = t.supplierName || "";
+      document.getElementById("etBillNo").value = t.invoiceNumber || "";
+      document.getElementById("etGst").value = t.gstPercent || 0;
+      recalcEtAmount();
+      editTxnModal.classList.add("show");
+    }
+    document.getElementById("etQty").addEventListener("input", recalcEtAmount);
+    document.getElementById("etRate").addEventListener("input", recalcEtAmount);
+    document.getElementById("etGst").addEventListener("input", recalcEtAmount);
+    document.getElementById("closeEditTxnModal").addEventListener("click", function () { editTxnModal.classList.remove("show"); editTxnId = null; });
+    document.getElementById("cancelEditTxnModal").addEventListener("click", function () { editTxnModal.classList.remove("show"); editTxnId = null; });
+    editTxnModal.addEventListener("click", function (e) { if (e.target === editTxnModal) { editTxnModal.classList.remove("show"); editTxnId = null; } });
+
+    document.getElementById("saveEditTxnBtn").addEventListener("click", function () {
+      if (!editTxnId) return;
+      var qty = Number(document.getElementById("etQty").value);
+      if (!qty) { App.showToast("Enter a quantity", true); return; }
+      var rate = Number(document.getElementById("etRate").value) || 0;
+      var date = document.getElementById("etDate").value;
+      var txns = Data.getStockTransactions();
+      var original = txns.find(function (t) { return t.id === editTxnId; });
+      if (!original) return;
+      var isVendorPurchase = original.type === "inward" && original.source !== "transfer" && original.source !== "godown";
+      var gstPercent = isVendorPurchase ? (Number(document.getElementById("etGst").value) || 0) : 0;
+      var subtotal = Math.round(qty * rate);
+      var gstAmount = Math.round(subtotal * gstPercent / 100);
+      var totalAmount = subtotal + gstAmount;
+      var supplierName = isVendorPurchase ? document.getElementById("etSupplier").value.trim() : original.supplierName;
+      var invoiceNumber = isVendorPurchase ? document.getElementById("etBillNo").value.trim() : original.invoiceNumber;
+
+      txns = txns.map(function (t) {
+        if (t.id !== editTxnId && !(original.transferId && t.transferId === original.transferId)) return t;
+        var isThisOne = t.id === editTxnId;
+        return Object.assign({}, t, {
+          quantity: qty, ratePerUnit: rate, totalAmount: totalAmount, date: date,
+          gstPercent: isThisOne ? gstPercent : t.gstPercent,
+          gstAmount: isThisOne ? gstAmount : t.gstAmount,
+          supplierName: isThisOne ? supplierName : t.supplierName,
+          invoiceNumber: isThisOne ? invoiceNumber : t.invoiceNumber
+        });
+      });
+      Data.saveStockTransactions(txns);
+      App.showToast("Transaction updated" + (original.transferId ? " — both sides synced" : ""));
+      editTxnModal.classList.remove("show");
+      editTxnId = null;
       renderAll();
     });
 

@@ -50,6 +50,31 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="payEditModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Edit Wage Payment</h3><p id="payEditSubtitle">Correct this payment record.</p></div>
+      <button class="modal-close" id="closePayEditModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="payEditForm">
+        <div class="field-grid">
+          <div class="field"><label>Type</label>
+            <select id="peType"><option value="advance">Advance</option><option value="payment">Payment (settlement)</option></select>
+          </div>
+          <div class="field"><label>Amount (₹)</label><input type="number" id="peAmount" min="0"></div>
+          <div class="field"><label>Date</label><input type="date" id="peDate"></div>
+          <div class="field full"><label>Notes</label><input type="text" id="peNotes"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelPayEditModal">Cancel</button>
+      <button class="btn btn-primary" id="savePayEditBtn">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="attDownloadModal">
   <div class="modal-box">
     <div class="modal-header">
@@ -138,7 +163,8 @@
       App.sortableTh("Date", "date", paySortState) +
       App.sortableTh("Project", "projectName", paySortState) +
       App.sortableTh("Type", "type", paySortState) +
-      App.sortableTh("Amount", "amount", paySortState);
+      App.sortableTh("Amount", "amount", paySortState) +
+      (canEditAtt ? '<th></th>' : '');
     App.wireSort(document.getElementById("payHeadRow"), paySortState, function () { renderStats(); });
 
     function renderStats() {
@@ -162,8 +188,15 @@
         var proj = Data.getProjects().find(function (x) { return x.id === p.projectId; });
         return '<tr><td>' + Data.displayDate(p.date) + '</td><td>' + (proj ? proj.name : "—") + '</td>' +
           '<td><span class="chip ' + (p.type === "advance" ? "chip-amber" : "chip-green") + '">' + (p.type === "advance" ? "Advance" : "Payment") + '</span></td>' +
-          '<td class="total-amount">₹' + p.amount + '</td></tr>';
-      }).join("") : '<tr><td colspan="4"><div class="empty-state compact">' + App.svg("coins") + '<p>No payments recorded.</p></div></td></tr>';
+          '<td class="total-amount">₹' + p.amount + '</td>' +
+          (canEditAtt ? '<td><div class="row-actions">' +
+            '<button class="action-trigger" data-menu-toggle="' + p.id + '">' + App.svg("dots") + '</button>' +
+            '<div class="action-menu" data-menu="' + p.id + '">' +
+              '<button data-edit-pay="' + p.id + '">' + App.svg("edit") + ' Edit</button>' +
+            '</div>' +
+          '</div></td>' : '') +
+        '</tr>';
+      }).join("") : '<tr><td colspan="' + (canEditAtt ? 5 : 4) + '"><div class="empty-state compact">' + App.svg("coins") + '<p>No payments recorded.</p></div></td></tr>';
     }
 
     function renderAttendance() {
@@ -187,7 +220,12 @@
         var proj = Data.getProjects().find(function (p) { return p.id === a.projectId; });
         var projLabel = proj ? (visibleIds.indexOf(proj.id) !== -1 ? '<a href="project-labour.html?id=' + proj.id + '">' + proj.name + '</a>' : proj.name) : "—";
         return '<tr><td>' + Data.displayDate(a.date) + '</td><td>' + projLabel + '</td><td>' + a.daysWorked + '</td><td>₹' + Math.round(a.daysWorked * a.wageRate) + '</td>' +
-          (canEditAtt ? '<td><button class="action-trigger" data-edit-att="' + a.id + '">' + App.svg("edit") + '</button></td>' : '') +
+          (canEditAtt ? '<td><div class="row-actions">' +
+            '<button class="action-trigger" data-menu-toggle="' + a.id + '">' + App.svg("dots") + '</button>' +
+            '<div class="action-menu" data-menu="' + a.id + '">' +
+              '<button data-edit-att="' + a.id + '">' + App.svg("edit") + ' Edit</button>' +
+            '</div>' +
+          '</div></td>' : '') +
         '</tr>';
       }).join("") : '<tr><td colspan="' + (canEditAtt ? 5 : 4) + '"><div class="empty-state compact">' + App.svg("calendar") + '<p>No attendance recorded in this range.</p></div></td></tr>';
 
@@ -209,7 +247,19 @@
     });
 
     var attEditModal = document.getElementById("attEditModal");
-    document.getElementById("attBody").addEventListener("click", function (e) {
+    var openMenuId = null;
+    document.addEventListener("click", function (e) {
+      var toggle = e.target.closest("[data-menu-toggle]");
+      document.querySelectorAll(".action-menu.show").forEach(function (m) { m.classList.remove("show"); });
+      if (toggle) {
+        var menuId = toggle.getAttribute("data-menu-toggle");
+        openMenuId = menuId;
+        App.positionActionMenu(menuId);
+        document.querySelector('[data-menu="' + menuId + '"]').classList.add("show");
+        return;
+      }
+      var payBtn = e.target.closest("[data-edit-pay]");
+      if (payBtn) { openPayEditModal(payBtn.getAttribute("data-edit-pay")); return; }
       var btn = e.target.closest("[data-edit-att]");
       if (!btn) return;
       var a = Data.getAttendance().find(function (x) { return x.id === btn.getAttribute("data-edit-att"); });
@@ -222,6 +272,7 @@
       document.getElementById("aeNotes").value = a.notes || "";
       attEditModal.classList.add("show");
     });
+    window.addEventListener("scroll", function () { if (openMenuId) App.positionActionMenu(openMenuId); }, true);
     function closeAttEditModal() { attEditModal.classList.remove("show"); }
     document.getElementById("closeAttEditModal").addEventListener("click", closeAttEditModal);
     document.getElementById("cancelAttEditModal").addEventListener("click", closeAttEditModal);
@@ -243,6 +294,40 @@
       closeAttEditModal();
       renderStats();
       renderAttendance();
+    });
+
+    var payEditModal = document.getElementById("payEditModal");
+    var editPayId = null;
+    function openPayEditModal(id) {
+      var p = Data.getWagePayments().find(function (x) { return x.id === id; });
+      if (!p) return;
+      editPayId = id;
+      var proj = Data.getProjects().find(function (x) { return x.id === p.projectId; });
+      document.getElementById("payEditSubtitle").textContent = "Payment recorded on " + (proj ? proj.name : "a project") + ".";
+      document.getElementById("peType").value = p.type;
+      document.getElementById("peAmount").value = p.amount;
+      document.getElementById("peDate").value = p.date;
+      document.getElementById("peNotes").value = p.notes || "";
+      payEditModal.classList.add("show");
+    }
+    function closePayEditModal() { payEditModal.classList.remove("show"); editPayId = null; }
+    document.getElementById("closePayEditModal").addEventListener("click", closePayEditModal);
+    document.getElementById("cancelPayEditModal").addEventListener("click", closePayEditModal);
+    payEditModal.addEventListener("click", function (e) { if (e.target === payEditModal) closePayEditModal(); });
+    document.getElementById("savePayEditBtn").addEventListener("click", function () {
+      if (!editPayId) return;
+      var amount = Number(document.getElementById("peAmount").value);
+      if (!amount) { App.showToast("Enter an amount", true); return; }
+      var payments = Data.getWagePayments().map(function (p) {
+        return p.id === editPayId ? Object.assign({}, p, {
+          type: document.getElementById("peType").value, amount: amount,
+          date: document.getElementById("peDate").value, notes: document.getElementById("peNotes").value.trim()
+        }) : p;
+      });
+      Data.saveWagePayments(payments);
+      App.showToast("Payment updated");
+      closePayEditModal();
+      renderStats();
     });
 
     var attDownloadModal = document.getElementById("attDownloadModal");

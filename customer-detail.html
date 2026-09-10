@@ -265,17 +265,30 @@
             '<td>' + (proj ? proj.name : "—") + '</td>' +
             '<td><span class="desc-cell">' + (e.description || "—") + (e.invoiceNumber ? ' (' + e.invoiceNumber + ')' : "") + '</span></td>' +
             '<td class="total-amount text-right">₹' + e.amount + '</td>' +
-            '<td><div class="action-buttons-row">' +
-              (canAddEntry ? '<button class="action-trigger" data-edit="' + e.id + '">' + App.svg("edit") + '</button>' : "") +
-              (canDeleteEntry ? '<button class="action-trigger" data-del="' + e.id + '">' + App.svg("trash") + '</button>' : "") +
-            '</div></td>' +
+            '<td>' + ((canAddEntry || canDeleteEntry) ? '<div class="row-actions">' +
+              '<button class="action-trigger" data-menu-toggle="' + e.id + '">' + App.svg("dots") + '</button>' +
+              '<div class="action-menu" data-menu="' + e.id + '">' +
+                (canAddEntry ? '<button data-edit="' + e.id + '">' + App.svg("edit") + ' Edit</button>' : "") +
+                (canDeleteEntry ? '<button class="danger" data-del="' + e.id + '">' + App.svg("trash") + ' Delete</button>' : "") +
+              '</div>' +
+            '</div>' : '') + '</td>' +
           '</tr>';
         }).join("");
 
         App.renderPager(document.getElementById("ledgerPager"), ledgerPage, ledgerPg.totalPages, function (newPage) { ledgerPage = newPage; renderLedger(); });
       }
 
-      document.getElementById("pageBody").addEventListener("click", function (e) {
+      var openMenuId = null;
+      document.addEventListener("click", function (e) {
+        var toggle = e.target.closest("[data-menu-toggle]");
+        document.querySelectorAll(".action-menu.show").forEach(function (m) { m.classList.remove("show"); });
+        if (toggle) {
+          var menuId = toggle.getAttribute("data-menu-toggle");
+          openMenuId = menuId;
+          App.positionActionMenu(menuId);
+          document.querySelector('[data-menu="' + menuId + '"]').classList.add("show");
+          return;
+        }
         var del = e.target.closest("[data-del]");
         if (del) {
           Data.saveCustomerLedger(Data.getCustomerLedger().filter(function (x) { return x.id !== del.getAttribute("data-del"); }));
@@ -286,6 +299,7 @@
         var edit = e.target.closest("[data-edit]");
         if (edit) { openLedgerEditModal(edit.getAttribute("data-edit")); return; }
       });
+      window.addEventListener("scroll", function () { if (openMenuId) App.positionActionMenu(openMenuId); }, true);
 
       var ledgerEditModal = document.getElementById("ledgerEditModal");
       function openLedgerEditModal(id) {
