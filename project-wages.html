@@ -178,14 +178,25 @@
         '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("alert") + '</div><div class="stat-value">₹' + Charts.fmtCompact(wagesOwed) + '</div><div class="stat-label">Wages owed</div></div>';
     }
 
+    function getFilteredPayments(from, to) {
+      return Data.getWagePayments().filter(function (p) {
+        if (p.projectId !== projectId) return false;
+        if (from && p.date < from) return false;
+        if (to && p.date > to) return false;
+        return true;
+      });
+    }
+
+    function paySortAccessor(p, field) {
+      if (field === "labourerName") { var lb = Data.getLabourers().find(function (l) { return l.id === p.labourerId; }); return lb ? lb.name : ""; }
+      return p[field];
+    }
+
     function renderPayments() {
       var payments = App.sortRows(
-        Data.getWagePayments().filter(function (p) { return p.projectId === projectId; }),
+        getFilteredPayments(),
         paySortState.field ? paySortState : { field: "date", dir: "desc" },
-        function (p, field) {
-          if (field === "labourerName") { var lb = Data.getLabourers().find(function (l) { return l.id === p.labourerId; }); return lb ? lb.name : ""; }
-          return p[field];
-        }
+        paySortAccessor
       );
       var body = document.getElementById("payBody");
       if (!payments.length) {
@@ -353,9 +364,20 @@
     document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
     downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
     document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
-      var format = document.getElementById("dlFormat").value.toUpperCase();
+      var format = document.getElementById("dlFormat").value;
+      var dlFrom = document.getElementById("dlFrom").value;
+      var dlTo = document.getElementById("dlTo").value;
+      var rows = App.sortRows(getFilteredPayments(dlFrom, dlTo), paySortState.field ? paySortState : { field: "date", dir: "desc" }, paySortAccessor);
+      var rangeText = (dlFrom || dlTo) ? " (" + (dlFrom ? Data.displayDate(dlFrom) : "start") + " to " + (dlTo ? Data.displayDate(dlTo) : "today") + ")" : "";
+      App.exportTable(format, project.code + "-wages", "Wage Payments — " + project.name + rangeText, project.code + rangeText,
+        [
+          { label: "Date", value: function (p) { return Data.displayDate(p.date); } },
+          { label: "Labourer", value: function (p) { var lab = Data.getLabourers().find(function (l) { return l.id === p.labourerId; }); return lab ? lab.name : "—"; } },
+          { label: "Type", value: function (p) { return p.type === "advance" ? "Advance" : "Payment"; } },
+          { label: "Amount", value: function (p) { return "₹" + p.amount; } }
+        ], rows);
       downloadModal.classList.remove("show");
-      App.showToast("Your " + format + " file is downloading...");
+      App.showToast("Your " + format.toUpperCase() + " file is downloading...");
     });
 
     renderAll();

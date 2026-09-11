@@ -304,10 +304,20 @@
     return t[field];
   }
 
+  function getFilteredGodownTxns() {
+    return Data.getStockTransactions().filter(function (t) { return t.projectId === GODOWN_ID; });
+  }
+
+  function godownTxnDetail(t) {
+    return t.type === "outward"
+      ? (function () { var p = Data.getProjects().find(function (pr) { return pr.id === t.sourceProjectId; }); return p ? "To " + p.name : (t.notes || "—"); })()
+      : (t.supplierName ? "Vendor: " + t.supplierName : (t.notes || "—"));
+  }
+
   function renderGodownTxns() {
     var materials = Data.getMaterials();
     var txns = App.sortRows(
-      Data.getStockTransactions().filter(function (t) { return t.projectId === GODOWN_ID; }),
+      getFilteredGodownTxns(),
       txnSortState.field ? txnSortState : { field: "date", dir: "desc" },
       txnAccessor
     );
@@ -323,9 +333,7 @@
     body.innerHTML = pg.pageItems.map(function (t) {
       var mat = materials.find(function (m) { return m.id === t.materialId; });
       var typeChip = t.type === "inward" ? '<span class="chip chip-green">Purchased in</span>' : '<span class="chip chip-amber">Issued out</span>';
-      var detail = t.type === "outward"
-        ? (function () { var p = Data.getProjects().find(function (pr) { return pr.id === t.sourceProjectId; }); return p ? "To " + p.name : (t.notes || "—"); })()
-        : (t.supplierName ? "Vendor: " + t.supplierName : (t.notes || "—"));
+      var detail = godownTxnDetail(t);
       return '<tr>' +
         '<td>' + Data.displayDate(t.date) + '</td>' +
         '<td>' + (t.invoiceNumber ? '<button class="link-btn" data-viewbill="' + t.id + '">' + t.invoiceNumber + '</button>' : "—") + '</td>' +
@@ -486,9 +494,32 @@
   document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
   downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
   document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
-    var format = document.getElementById("dlFormat").value.toUpperCase();
+    var format = document.getElementById("dlFormat").value;
+    var from = document.getElementById("dlFrom").value;
+    var to = document.getElementById("dlTo").value;
+    var materials = Data.getMaterials();
+    var rows = App.sortRows(
+      getFilteredGodownTxns().filter(function (t) {
+        if (from && t.date < from) return false;
+        if (to && t.date > to) return false;
+        return true;
+      }),
+      txnSortState.field ? txnSortState : { field: "date", dir: "desc" },
+      txnAccessor
+    );
+    var rangeText = (from || to) ? " (" + (from ? Data.displayDate(from) : "start") + " to " + (to ? Data.displayDate(to) : "today") + ")" : "";
+    App.exportTable(format, "godown-transactions", "Godown Transaction History" + rangeText, "Central Store" + rangeText,
+      [
+        { label: "Date", value: function (t) { return Data.displayDate(t.date); } },
+        { label: "Bill No.", value: function (t) { return t.invoiceNumber || "—"; } },
+        { label: "Material", value: function (t) { var m = materials.find(function (x) { return x.id === t.materialId; }); return m ? m.name : "—"; } },
+        { label: "Type", value: function (t) { return t.type === "inward" ? "Purchased in" : "Issued out"; } },
+        { label: "Detail", value: godownTxnDetail },
+        { label: "Quantity", value: function (t) { var m = materials.find(function (x) { return x.id === t.materialId; }); return t.quantity + " " + (m ? m.unit : ""); } },
+        { label: "Amount", value: function (t) { return "₹" + t.totalAmount; } }
+      ], rows);
     downloadModal.classList.remove("show");
-    App.showToast("Your " + format + " file is downloading...");
+    App.showToast("Your " + format.toUpperCase() + " file is downloading...");
   });
 
   renderGodown();

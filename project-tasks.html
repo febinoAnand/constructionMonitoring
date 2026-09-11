@@ -64,10 +64,9 @@
         <div class="field-grid">
           <div class="field full"><label>Title</label><input type="text" id="ettTitle"></div>
           <div class="field full"><label>Assignee</label><input type="text" id="ettAssignee"></div>
-          <div class="field"><label>Start Date</label><input type="date" id="ettStartDate"></div>
+          <div class="field"><label>Date</label><input type="date" id="ettStartDate"></div>
           <div class="field"><label>Estimated Completion</label><input type="date" id="ettDate"></div>
           <div class="field"><label>Duration (days)</label><input type="number" id="ettDuration" min="0" placeholder="e.g. 5"></div>
-          <div class="field"><label>Completed Date</label><input type="date" id="ettCompletedAt"></div>
           <div class="field full"><label>Notes</label><textarea id="ettNotes" rows="4"></textarea></div>
         </div>
       </form>
@@ -186,12 +185,10 @@
           <div class="field full"><label>Title <span class="req">*</span></label><input type="text" id="atTitle" required></div>
           <div class="field"><label>Assignee</label><input type="text" id="atAssignee" placeholder="Labourer / team"></div>
           <div class="field"><label>Status</label><select id="atStatus"></select></div>
-          <div class="field"><label>Created Date</label><input type="date" id="atCreatedDate"></div>
-          <div class="field"><label>Start Date</label><input type="date" id="atStartDate"></div>
+          <div class="field"><label>Date</label><input type="date" id="atStartDate"></div>
           <div class="field"><label>Estimated Completion</label><input type="date" id="atDate"></div>
           <div class="field"><label>Duration (days)</label><input type="number" id="atDuration" min="0" placeholder="e.g. 5"></div>
           <div class="field"><label>Area (sqft) — Estimated</label><input type="number" id="atSqft" min="0" placeholder="e.g. 200"></div>
-          <div class="field"><label>Actual Completed Date</label><input type="date" id="atCompletedAt"></div>
           <div class="field full"><label>Notes</label><textarea id="atNotes" rows="3" placeholder="Add details, blockers, or context about this task..."></textarea></div>
         </div>
       </form>
@@ -199,6 +196,36 @@
     <div class="modal-footer">
       <button class="btn btn-outline" id="cancelAddTaskModal">Cancel</button>
       <button class="btn btn-primary" id="saveAddTaskBtn">Add Task</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="downloadModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Download Task Details</h3><p id="downloadModalSubtitle">Choose a file format and date range to export.</p></div>
+      <button class="modal-close" id="closeDownloadModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="downloadForm">
+        <div class="field-grid">
+          <div class="field full">
+            <label>File Format</label>
+            <div class="format-toggle" id="dlFormatToggle">
+              <button type="button" class="format-toggle-btn active" data-format="pdf">PDF</button>
+              <button type="button" class="format-toggle-btn" data-format="csv">CSV</button>
+            </div>
+            <input type="hidden" id="dlFormat" value="pdf">
+          </div>
+          <div class="field"><label>From (Est. Completion)</label><input type="date" id="dlFrom"></div>
+          <div class="field"><label>To (Est. Completion)</label><input type="date" id="dlTo"></div>
+          <div class="field full"><span class="field-hint" id="downloadStatusHint"></span></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelDownloadModal">Cancel</button>
+      <button class="btn btn-primary" id="confirmDownloadBtn">Download</button>
     </div>
   </div>
 </div>
@@ -251,8 +278,16 @@
       '<div id="tableView">' +
         '<div class="panel full-panel">' +
           '<div class="panel-header"><h3>All Tasks — Status Overview</h3>' +
-            '<div style="display:flex;align-items:center;gap:14px">' +
+            '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
               '<span class="panel-tag" id="taskCount"></span>' +
+              '<div class="multiselect" id="statusFilterMultiselect" style="width:190px">' +
+                '<button type="button" class="multiselect-trigger" id="statusFilterTrigger">' +
+                  '<span class="multiselect-trigger-text placeholder" id="statusFilterTriggerText">All statuses</span>' +
+                  '<svg class="multiselect-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
+                '</button>' +
+                '<div class="multiselect-panel" id="statusFilterPanel"></div>' +
+              '</div>' +
+              '<button class="btn btn-outline" id="tasksDownloadBtn" style="padding:8px 16px;font-size:12.5px">' + App.svg("download") + ' Download</button>' +
               (canCreate ? '<button class="btn btn-primary" id="tableAddTaskBtn" style="padding:8px 16px;font-size:12.5px">' + App.svg("plus") + ' Add task</button>' : '') +
             '</div>' +
           '</div>' +
@@ -267,6 +302,60 @@
     App.wireSort(document.getElementById("taskTableHead"), taskSortState, function () { taskPage = 1; renderTable(); });
 
     function statusPillClass(s) { return s === "done" ? "delivered" : s === "todo" ? "pending" : "confirmed"; }
+
+    /* Status multi-filter (To Do / In Progress / Done, plus any custom columns) for the table
+       view — drives both what's shown on screen and what the Download button exports, so the
+       export always matches whatever the table is currently filtered to. Starts with every
+       status checked (i.e. unfiltered); unchecking one hides it from the table and the export. */
+    var statusFilterTrigger = document.getElementById("statusFilterTrigger");
+    var statusFilterPanel = document.getElementById("statusFilterPanel");
+    var statusFilterTriggerText = document.getElementById("statusFilterTriggerText");
+
+    function renderStatusFilterPanel() {
+      var cols = statusColumns();
+      var checked = getCheckedStatusKeys();
+      statusFilterPanel.innerHTML = cols.map(function (c) {
+        var isChecked = checked === null || checked.indexOf(c.key) !== -1;
+        return '<label class="checklist-item"><input type="checkbox" value="' + c.key + '"' + (isChecked ? " checked" : "") + '> ' + c.label + '</label>';
+      }).join("");
+    }
+    function getCheckedStatusKeys() {
+      if (!statusFilterPanel.querySelector("input")) return null;
+      return Array.from(statusFilterPanel.querySelectorAll("input:checked")).map(function (el) { return el.value; });
+    }
+    function refreshStatusFilterTrigger() {
+      var cols = statusColumns();
+      var checked = getCheckedStatusKeys() || [];
+      var allSelected = checked.length === cols.length;
+      statusFilterTriggerText.textContent = allSelected ? "All statuses" : (checked.length ? checked.map(function (k) { return statusMeta(k).label; }).join(", ") : "No statuses selected");
+      statusFilterTriggerText.classList.toggle("placeholder", allSelected);
+    }
+    /* Tasks currently matching the status filter — shared by the on-screen table and export
+       so the two never disagree about what "currently shown" means. */
+    function getStatusFilteredTasks() {
+      var tasks = Data.getTasks().filter(function (t) { return t.projectId === projectId; });
+      var checked = getCheckedStatusKeys();
+      if (checked) tasks = tasks.filter(function (t) { return checked.indexOf(t.status) !== -1; });
+      return tasks;
+    }
+    statusFilterPanel.addEventListener("change", function () { refreshStatusFilterTrigger(); taskPage = 1; renderTable(); });
+    function positionStatusFilterPanel() {
+      var rect = statusFilterTrigger.getBoundingClientRect();
+      statusFilterPanel.style.left = rect.left + "px";
+      statusFilterPanel.style.top = (rect.bottom + 6) + "px";
+      statusFilterPanel.style.width = rect.width + "px";
+    }
+    function openStatusFilterPanel() { positionStatusFilterPanel(); statusFilterPanel.classList.add("show"); statusFilterTrigger.classList.add("open"); }
+    function closeStatusFilterPanel() { statusFilterPanel.classList.remove("show"); statusFilterTrigger.classList.remove("open"); }
+    statusFilterTrigger.addEventListener("click", function (e) {
+      e.stopPropagation();
+      renderStatusFilterPanel();
+      if (statusFilterPanel.classList.contains("show")) closeStatusFilterPanel(); else openStatusFilterPanel();
+    });
+    document.addEventListener("click", function (e) {
+      if (statusFilterPanel.classList.contains("show") && !statusFilterPanel.contains(e.target) && e.target !== statusFilterTrigger) closeStatusFilterPanel();
+    });
+    window.addEventListener("scroll", function () { if (statusFilterPanel.classList.contains("show")) positionStatusFilterPanel(); }, true);
 
     /* Keeps a task's Estimated Completion date and planned Duration (days) in sync —
        editing either one recalculates the other from the task's created date. */
@@ -426,7 +515,7 @@
         '<th></th>';
 
       var tasks = App.sortRows(
-        Data.getTasks().filter(function (t) { return t.projectId === projectId; }),
+        getStatusFilteredTasks(),
         taskSortState.field ? taskSortState : { field: "date", dir: "desc" }
       );
       document.getElementById("taskCount").textContent = tasks.length + " task(s)";
@@ -656,7 +745,6 @@
       document.getElementById("ettStartDate").value = t.startDate || "";
       document.getElementById("ettDate").value = t.date || "";
       document.getElementById("ettDuration").value = t.durationDays || "";
-      document.getElementById("ettCompletedAt").value = t.completedAt || "";
       document.getElementById("ettNotes").value = t.notes || "";
       editTaskTableModal.classList.add("show");
     }
@@ -686,8 +774,6 @@
       var tasks = Data.getTasks();
       var t = tasks.find(function (x) { return x.id === id; });
       if (!t) return;
-      var newCompletedAt = document.getElementById("ettCompletedAt").value || null;
-      var triggersCompletion = newCompletedAt && t.status !== "done";
 
       t.title = document.getElementById("ettTitle").value.trim() || t.title;
       t.assignee = document.getElementById("ettAssignee").value.trim();
@@ -695,14 +781,11 @@
       t.date = document.getElementById("ettDate").value;
       t.durationDays = Number(document.getElementById("ettDuration").value) || null;
       t.notes = document.getElementById("ettNotes").value.trim();
-      if (!triggersCompletion) t.completedAt = newCompletedAt;
       Data.saveTasks(tasks);
       Data.addTaskActivity(id, "Task details edited");
       App.showToast("Task updated");
       closeEditTaskTableModal();
       renderAll();
-
-      if (triggersCompletion) openCompleteTaskModal(id, newCompletedAt);
     });
 
     var subtasksModal = document.getElementById("subtasksModal");
@@ -856,6 +939,73 @@
     var tableAddTaskBtn = document.getElementById("tableAddTaskBtn");
     if (tableAddTaskBtn) tableAddTaskBtn.addEventListener("click", function () { openAddTaskModal("todo"); });
 
+    /* ---------------- Download Task Details (CSV / PDF) ---------------- */
+
+    var tasksDownloadModal = document.getElementById("downloadModal");
+    document.getElementById("tasksDownloadBtn").addEventListener("click", function () {
+      var checked = getCheckedStatusKeys();
+      var cols = statusColumns();
+      var allSelected = !checked || checked.length === cols.length;
+      document.getElementById("downloadStatusHint").textContent = allSelected
+        ? "Includes tasks in every status."
+        : "Includes only: " + checked.map(function (k) { return statusMeta(k).label; }).join(", ") + " (matching the table's current status filter).";
+      document.getElementById("dlFrom").value = "";
+      document.getElementById("dlTo").value = "";
+      document.getElementById("dlFormat").value = "pdf";
+      document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-format") === "pdf"); });
+      tasksDownloadModal.classList.add("show");
+    });
+    document.getElementById("dlFormatToggle").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-format]");
+      if (!btn) return;
+      document.querySelectorAll("#dlFormatToggle .format-toggle-btn").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.getElementById("dlFormat").value = btn.getAttribute("data-format");
+    });
+    document.getElementById("closeDownloadModal").addEventListener("click", function () { tasksDownloadModal.classList.remove("show"); });
+    document.getElementById("cancelDownloadModal").addEventListener("click", function () { tasksDownloadModal.classList.remove("show"); });
+    tasksDownloadModal.addEventListener("click", function (e) { if (e.target === tasksDownloadModal) tasksDownloadModal.classList.remove("show"); });
+
+    /* Full task-detail export columns — every closing/completion field shown on the task
+       detail page, plus this project's custom fields, not just the compact table columns. */
+    function taskExportColumns() {
+      var defs = fieldDefs();
+      return [
+        { label: "Task", value: function (t) { return t.title; } },
+        { label: "Assignee", value: function (t) { return t.assignee || "—"; } },
+        { label: "Status", value: function (t) { return statusMeta(t.status).label; } },
+        { label: "Start Date", value: function (t) { return t.startDate ? Data.displayDate(t.startDate) : "—"; } },
+        { label: "Est. Completion", value: function (t) { return t.date ? Data.displayDate(t.date) : "—"; } },
+        { label: "Duration (days)", value: function (t) { return taskDurationValue(t) || "—"; } },
+        { label: "Completed Date", value: function (t) { return t.completedAt ? Data.displayDate(t.completedAt) : "—"; } },
+        { label: "Progress %", value: function (t) { return Business.getTaskProgress(t).percent + "%"; } },
+        { label: "Area (sqft)", value: function (t) { return Business.getTaskCompletionSummary(t).area || "—"; } },
+        { label: "Cost (₹)", value: function (t) { var c = Business.getTaskCompletionSummary(t).cost; return c ? "₹" + c.toLocaleString("en-IN") : "—"; } },
+        { label: "Person in Charge", value: function (t) { return t.personInCharge || "—"; } },
+        { label: "No. of Persons", value: function (t) { return t.personsCount || "—"; } },
+        { label: "Material Used", value: function (t) { return materialsUsedSummary(t) || "—"; } },
+        { label: "Notes", value: function (t) { return t.notes || "—"; } }
+      ].concat(defs.map(function (f) {
+        return { label: f.label, value: function (t) { var v = t.customFields && t.customFields[f.key]; return (v === undefined || v === null || v === "") ? "—" : v; } };
+      }));
+    }
+
+    document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
+      var format = document.getElementById("dlFormat").value;
+      var from = document.getElementById("dlFrom").value;
+      var to = document.getElementById("dlTo").value;
+      var rows = getStatusFilteredTasks().filter(function (t) {
+        if (from && (!t.date || t.date < from)) return false;
+        if (to && (!t.date || t.date > to)) return false;
+        return true;
+      });
+      rows = App.sortRows(rows, taskSortState.field ? taskSortState : { field: "date", dir: "desc" });
+      var rangeText = (from || to) ? " (" + (from ? Data.displayDate(from) : "start") + " to " + (to ? Data.displayDate(to) : "today") + ")" : "";
+      tasksDownloadModal.classList.remove("show");
+      App.exportTable(format, project.code + "-tasks", "Task Details — " + project.name + rangeText, project.code + rangeText, taskExportColumns(), rows);
+      App.showToast("Your " + format.toUpperCase() + " file is downloading...");
+    });
+
     /* ---------------- Subtask completion credentials (area, rate, auto-cost) ---------------- */
 
     function subtaskCostTotals(t) {
@@ -995,14 +1145,13 @@
 
     var addTaskModal = document.getElementById("addTaskModal");
     function atAnchorDate() {
-      return document.getElementById("atStartDate").value || document.getElementById("atCreatedDate").value || Data.isoDate(Data.today());
+      return document.getElementById("atStartDate").value || Data.isoDate(Data.today());
     }
     function openAddTaskModal(presetStatus) {
       document.getElementById("addTaskForm").reset();
       var statusSelect = document.getElementById("atStatus");
       statusSelect.innerHTML = statusColumns().map(function (s) { return '<option value="' + s.key + '">' + s.label + '</option>'; }).join("");
       statusSelect.value = presetStatus || "todo";
-      document.getElementById("atCreatedDate").value = Data.isoDate(Data.today());
       addTaskModal.classList.add("show");
       document.getElementById("atTitle").focus();
     }
@@ -1029,8 +1178,10 @@
     document.getElementById("saveAddTaskBtn").addEventListener("click", function () {
       var title = document.getElementById("atTitle").value.trim();
       if (!title) { App.showToast("Enter a task title", true); return; }
-      var completedAtVal = document.getElementById("atCompletedAt").value || null;
-      var statusVal = completedAtVal ? "done" : document.getElementById("atStatus").value;
+      var statusVal = document.getElementById("atStatus").value;
+      /* Created Date and Completed Date aren't entered by hand — Created is always "now",
+         and Completed only gets set the moment a task's status actually becomes Done. */
+      var completedAtVal = statusVal === "done" ? Data.isoDate(Data.today()) : null;
 
       var newTaskId = Data.uid("tk");
       var tasks = Data.getTasks();
@@ -1044,7 +1195,7 @@
         startDate: document.getElementById("atStartDate").value || null,
         notes: document.getElementById("atNotes").value.trim(),
         customFields: {}, subtasks: [],
-        createdAt: document.getElementById("atCreatedDate").value || Data.isoDate(Data.today()),
+        createdAt: Data.isoDate(Data.today()),
         createdBy: me ? me.id : null,
         completedAt: completedAtVal,
         sqft: Number(document.getElementById("atSqft").value) || null, completionCost: null, personsCount: null, personInCharge: "", materialsUsed: []

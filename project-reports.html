@@ -112,9 +112,30 @@
       '<th></th>';
     App.wireSort(document.getElementById("repHeadRow"), repSortState, function () { repPage = 1; renderReports(); });
 
-    function renderReports() {
+    /* Backfills a task_complete report for any task that's marked done but has none yet —
+       covers tasks completed before this auto-report logic existed, seeded/demo data, or any
+       other path that sets status to "done" directly without going through the complete-task
+       flow, so a completed task is never silently missing from this page. */
+    function reconcileMissingCompletionReports() {
+      var doneTasks = Data.getTasks().filter(function (t) { return t.projectId === projectId && t.status === "done"; });
+      var reports = Data.getWorkReports();
+      var changed = false;
+      doneTasks.forEach(function (t) {
+        var existing = reports.find(function (r) { return r.taskId === t.id && r.source === "task_complete"; });
+        if (existing) return;
+        reports.push({
+          id: Data.uid("wr"), projectId: projectId, date: t.completedAt || Data.isoDate(Data.today()),
+          title: t.title, description: "Task completed: " + t.title + (t.assignee ? " (" + t.assignee + ")" : "") + ".",
+          source: "task_complete", taskId: t.id
+        });
+        changed = true;
+      });
+      if (changed) Data.saveWorkReports(reports);
+    }
+
+    function getFilteredReports() {
       var tasks = Data.getTasks();
-      var reports = Data.getWorkReports().filter(function (r) {
+      return Data.getWorkReports().filter(function (r) {
         if (r.projectId !== projectId) return false;
         /* This page shows only reports for tasks that are actually complete — auto-generated
            on task completion, and hidden again if that task gets reopened or deleted. */
@@ -127,6 +148,10 @@
         if (repTo && r.date > repTo) return false;
         return true;
       });
+    }
+
+    function renderReports() {
+      var reports = getFilteredReports();
 
       var body = document.getElementById("repBody");
       document.getElementById("repCount").textContent = reports.length + (reports.length === 1 ? " report" : " reports");
@@ -267,11 +292,20 @@
     document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
     downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
     document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
-      var format = document.getElementById("dlFormat").value.toUpperCase();
+      var format = document.getElementById("dlFormat").value;
+      var rows = App.sortRows(getFilteredReports(), repSortState.field ? repSortState : { field: "date", dir: "desc" });
+      var rangeText = (repFrom || repTo) ? " (" + (repFrom ? Data.displayDate(repFrom) : "start") + " to " + (repTo ? Data.displayDate(repTo) : "today") + ")" : "";
+      App.exportTable(format, project.code + "-reports", "Work Reports — " + project.name + rangeText, project.code + rangeText,
+        [
+          { label: "Date", value: function (r) { return Data.displayDate(r.date); } },
+          { label: "Title", value: function (r) { return r.title || "Work Report"; } },
+          { label: "Description", key: "description" }
+        ], rows);
       downloadModal.classList.remove("show");
-      App.showToast("Your " + format + " file is downloading...");
+      App.showToast("Your " + format.toUpperCase() + " file is downloading...");
     });
 
+    reconcileMissingCompletionReports();
     renderReports();
   }
 </script>

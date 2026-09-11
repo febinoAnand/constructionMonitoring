@@ -30,6 +30,8 @@
         <div class="panel">
           <div class="panel-header"><h3>Progress</h3></div>
           <div class="progress-ring-wrap" id="progressRing"></div>
+          <div class="field-group-divider" id="incompleteTasksHeader" style="margin-top:16px">Recent Tasks</div>
+          <div id="incompleteTasksList"></div>
         </div>
 
         <div class="panel">
@@ -83,6 +85,45 @@
     ringEl.insertAdjacentHTML("beforeend",
       est.atRisk ? '<span class="badge badge-danger" style="margin-top:10px;display:inline-block">At risk of missing target</span>' :
       (est.hasData ? '<span class="badge badge-success" style="margin-top:10px;display:inline-block">On track</span>' : ''));
+
+    function overviewStatusMeta(key) {
+      var col = Business.getProjectStatusColumns(projectId).find(function (s) { return s.key === key; });
+      return col || { key: key, label: key };
+    }
+    function overviewStatusPillClass(key) { return key === "done" ? "delivered" : key === "todo" ? "pending" : "confirmed"; }
+    function overviewMiniRingHtml(percent) {
+      var host = document.createElement("div");
+      Charts.renderProgressRing(host, percent, { size: 42, stroke: 5, fontSize: 10 });
+      return host.innerHTML;
+    }
+
+    var RECENT_TASKS_SHOWN = 6;
+    var allProjectTasks = Data.getTasks().filter(function (t) { return t.projectId === projectId; });
+    var recentTasks = App.sortRows(allProjectTasks, { field: "createdAt", dir: "desc" }).slice(0, RECENT_TASKS_SHOWN);
+    document.getElementById("incompleteTasksHeader").textContent = "Recent Tasks (last " + recentTasks.length + ")";
+    var incompleteEl = document.getElementById("incompleteTasksList");
+    if (!recentTasks.length) {
+      incompleteEl.innerHTML = '<div class="empty-state compact">' + App.svg("check") + '<p>No tasks yet.</p></div>';
+    } else {
+      incompleteEl.innerHTML = '<div class="recent-tasks-grid">' + recentTasks.map(function (t) {
+        var percent = Business.getTaskProgress(t).percent;
+        return '<div class="recent-task-card">' +
+          '<div class="recent-task-card-body">' +
+            '<div class="recent-task-ring">' + overviewMiniRingHtml(percent) + '</div>' +
+            '<div class="recent-task-card-info">' +
+              '<div class="recent-task-card-title-row">' +
+                '<a href="project-task-detail.html?id=' + projectId + '&task=' + t.id + '">' + t.title + '</a>' +
+                '<span class="status-pill ' + overviewStatusPillClass(t.status) + '">' + overviewStatusMeta(t.status).label + '</span>' +
+              '</div>' +
+              '<div class="recent-task-card-meta">' + (t.assignee || "Unassigned") + (t.date ? ' · Due ' + Data.displayDate(t.date) : '') + '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join("") + '</div>' +
+      (allProjectTasks.length > recentTasks.length
+        ? '<div style="text-align:right;margin-top:10px"><a class="link-btn" href="project-tasks.html?id=' + projectId + '">View all ' + allProjectTasks.length + ' &rarr;</a></div>'
+        : '');
+    }
 
     var cost = Business.getProjectCost(projectId);
     var openingLabel = project.openingBalanceType === "debit" ? "Opening Balance (Debit)" : "Opening Balance (Credit)";

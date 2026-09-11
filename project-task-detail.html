@@ -106,6 +106,7 @@
     var canDelete = App.can("progress", "delete");
 
     var task = Data.getTasks().find(function (t) { return t.id === taskId && t.projectId === projectId; });
+    var editMaterialUsedId = null;
 
     function statusColumns() { return Business.getProjectStatusColumns(projectId); }
     function statusMeta(key) { return statusColumns().find(function (s) { return s.key === key; }) || { key: key, label: key }; }
@@ -156,10 +157,9 @@
               '<div class="field-grid">' +
                 '<div class="field full"><label>Title</label><input type="text" id="tdTitle"></div>' +
                 '<div class="field"><label>Status</label><select id="tdStatus"></select></div>' +
-                '<div class="field"><label>Start Date</label><input type="date" id="tdStartDate"></div>' +
+                '<div class="field"><label>Date</label><input type="date" id="tdStartDate"></div>' +
                 '<div class="field"><label>Estimated Completion</label><input type="date" id="tdDate"></div>' +
                 '<div class="field"><label>Duration (days)</label><input type="number" id="tdDuration" min="0" placeholder="e.g. 5"></div>' +
-                '<div class="field"><label>Completed On</label><input type="date" id="tdCompletedAt"></div>' +
                 '<div class="field full">' +
                   '<label>Assignee</label>' +
                   '<div style="display:flex;gap:8px">' +
@@ -199,6 +199,7 @@
                 '<div class="field" style="flex:1.4;min-width:200px"><label>Material</label><select id="muMaterial"></select></div>' +
                 '<div class="field"><label>Quantity Used</label><input type="number" id="muQty" min="0" step="0.01"></div>' +
                 '<button type="button" class="btn btn-outline" id="addMaterialUsedBtn">+ Record Usage</button>' +
+                '<button type="button" class="link-btn" id="cancelMuEditBtn" style="display:none;align-self:center">Cancel</button>' +
               '</div>' : '') +
             '</div>' +
           '</div>' +
@@ -213,11 +214,10 @@
       document.getElementById("tdStartDate").value = task.startDate || "";
       document.getElementById("tdDate").value = task.date || "";
       document.getElementById("tdDuration").value = task.durationDays || "";
-      document.getElementById("tdCompletedAt").value = task.completedAt || "";
       document.getElementById("tdNotes").value = task.notes || "";
 
       var readOnly = !canUpdate;
-      ["tdTitle", "tdStatus", "tdAssignee", "tdStartDate", "tdDate", "tdDuration", "tdCompletedAt", "tdNotes"].forEach(function (id) {
+      ["tdTitle", "tdStatus", "tdAssignee", "tdStartDate", "tdDate", "tdDuration", "tdNotes"].forEach(function (id) {
         document.getElementById(id).disabled = readOnly;
       });
 
@@ -252,7 +252,11 @@
           '<td>' + (subtask ? subtask.title : "—") + '</td>' +
           '<td>' + l.qty + ' ' + (m ? m.unit : "") + '</td>' +
           '<td>' + balance + ' ' + (m ? m.unit : "") + '</td>' +
-          (canUpdate ? '<td><button class="action-trigger" data-material-used-del="' + l.id + '">' + App.svg("trash") + '</button></td>' : '') +
+          (canUpdate ?
+          '<td class="subtask-actions-cell">' +
+            '<button type="button" class="action-trigger" data-material-used-edit="' + l.id + '" title="Edit usage">' + App.svg("edit") + '</button>' +
+            '<button type="button" class="action-trigger" data-material-used-del="' + l.id + '" title="Remove usage">' + App.svg("trash") + '</button>' +
+          '</td>' : '') +
         '</tr>';
       }).join("");
     }
@@ -489,12 +493,6 @@
         renderTimeline();
         document.getElementById("tdDate").value = task.date || "";
       });
-      document.getElementById("tdCompletedAt").addEventListener("change", function () {
-        var newDate = this.value || null;
-        if (newDate && task.status !== "done") { openCompleteTaskModal(newDate); return; }
-        saveTaskPatch({ completedAt: newDate });
-        renderTimeline();
-      });
       document.getElementById("tdNotes").addEventListener("change", function () { saveTaskPatch({ notes: this.value }); });
 
       var assignBtn = document.getElementById("assignToMeBtn");
@@ -568,11 +566,42 @@
       });
 
       var addMuBtn = document.getElementById("addMaterialUsedBtn");
+      var cancelMuEditBtn = document.getElementById("cancelMuEditBtn");
+      function resetMuForm() {
+        editMaterialUsedId = null;
+        document.getElementById("muQty").value = "";
+        if (addMuBtn) addMuBtn.textContent = "+ Record Usage";
+        if (cancelMuEditBtn) cancelMuEditBtn.style.display = "none";
+      }
+      if (cancelMuEditBtn) cancelMuEditBtn.addEventListener("click", resetMuForm);
       if (addMuBtn) addMuBtn.addEventListener("click", function () {
         var materialId = document.getElementById("muMaterial").value;
         var qty = Number(document.getElementById("muQty").value);
         if (!materialId || !qty) { App.showToast("Choose a material and enter a quantity", true); return; }
         var mat = Data.getMaterials().find(function (m) { return m.id === materialId; });
+
+        if (editMaterialUsedId) {
+          var existingLine = (task.materialsUsed || []).find(function (l) { return l.id === editMaterialUsedId; });
+          if (!existingLine) { resetMuForm(); return; }
+          var reservedForThis = existingLine.materialId === materialId ? existingLine.qty : 0;
+          var editBalance = Business.getStockBalance(projectId, materialId).balance + reservedForThis;
+          if (qty > editBalance) { App.showToast("Only " + editBalance + " " + (mat ? mat.unit : "") + " available in stock", true); return; }
+          var txns = Data.getStockTransactions().map(function (t) {
+            return t.id === editMaterialUsedId ? Object.assign({}, t, { materialId: materialId, quantity: qty }) : t;
+          });
+          Data.saveStockTransactions(txns);
+          var materialsUsed = (task.materialsUsed || []).map(function (l) {
+            return l.id === editMaterialUsedId ? Object.assign({}, l, { materialId: materialId, qty: qty }) : l;
+          });
+          saveTaskPatch({ materialsUsed: materialsUsed });
+          Data.addTaskActivity(taskId, "Updated material usage: " + qty + " " + (mat ? mat.unit : "") + " of " + (mat ? mat.name : "material"));
+          App.showToast("Usage updated");
+          resetMuForm();
+          renderMaterialsUsed();
+          renderActivity();
+          return;
+        }
+
         var balance = Business.getStockBalance(projectId, materialId).balance;
         if (qty > balance) { App.showToast("Only " + balance + " " + (mat ? mat.unit : "") + " available in stock", true); return; }
         var txnId = Data.uid("st");
@@ -593,9 +622,23 @@
       });
       var materialsUsedBodyEl = document.getElementById("materialsUsedBody");
       if (materialsUsedBodyEl) materialsUsedBodyEl.addEventListener("click", function (e) {
+        var editBtn = e.target.closest("[data-material-used-edit]");
+        if (editBtn) {
+          var editLine = (task.materialsUsed || []).find(function (l) { return l.id === editBtn.getAttribute("data-material-used-edit"); });
+          if (editLine) {
+            editMaterialUsedId = editLine.id;
+            document.getElementById("muMaterial").value = editLine.materialId;
+            document.getElementById("muQty").value = editLine.qty;
+            if (addMuBtn) addMuBtn.textContent = "Save Changes";
+            if (cancelMuEditBtn) cancelMuEditBtn.style.display = "";
+            document.getElementById("muQty").focus();
+          }
+          return;
+        }
         var btn = e.target.closest("[data-material-used-del]");
         if (!btn) return;
         var id = btn.getAttribute("data-material-used-del");
+        if (editMaterialUsedId === id) resetMuForm();
         Data.saveStockTransactions(Data.getStockTransactions().filter(function (t) { return t.id !== id; }));
         var materialsUsed = (task.materialsUsed || []).filter(function (l) { return l.id !== id; });
         saveTaskPatch({ materialsUsed: materialsUsed });

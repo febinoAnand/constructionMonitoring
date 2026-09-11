@@ -183,15 +183,23 @@
         '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("coins") + '</div><div class="stat-value">₹' + Charts.fmtCompact(committed) + '</div><div class="stat-label">Total committed / month</div></div>';
     }
 
-    function renderPayments() {
-      var payments = App.sortRows(
-        Data.getSalaryPayments().filter(function (p) { return p.projectId === projectId; }),
-        paySortState.field ? paySortState : { field: "date", dir: "desc" },
+    function getFilteredPayments() {
+      return Data.getSalaryPayments().filter(function (p) { return p.projectId === projectId; });
+    }
+
+    function sortPayments(payments, sortState) {
+      return App.sortRows(
+        payments,
+        sortState.field ? sortState : { field: "date", dir: "desc" },
         function (p, field) {
           if (field === "userName") { var u = Data.getUsers().find(function (x) { return x.id === p.userId; }); return u ? u.name : ""; }
           return p[field];
         }
       );
+    }
+
+    function renderPayments() {
+      var payments = sortPayments(getFilteredPayments(), paySortState);
       var body = document.getElementById("payBody");
       if (!payments.length) {
         body.innerHTML = '<tr><td colspan="' + (canCreate ? 5 : 4) + '"><div class="empty-state compact">' + App.svg("briefcase") + '<p>No salary payments recorded yet.</p></div></td></tr>';
@@ -368,9 +376,17 @@
     document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
     downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
     document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
-      var format = document.getElementById("dlFormat").value.toUpperCase();
+      var format = document.getElementById("dlFormat").value;
+      var rows = sortPayments(getFilteredPayments(), paySortState);
+      App.exportTable(format, project.code + "-salary", "Salary Payments — " + project.name, project.code,
+        [
+          { label: "Date", value: function (p) { return Data.displayDate(p.date); } },
+          { label: "User", value: function (p) { var u = Data.getUsers().find(function (x) { return x.id === p.userId; }); return u ? u.name : "—"; } },
+          { label: "Type", value: function (p) { return p.type === "advance" ? "Advance" : "Payment"; } },
+          { label: "Amount", value: function (p) { return "₹" + p.amount; } }
+        ], rows);
       downloadModal.classList.remove("show");
-      App.showToast("Your " + format + " file is downloading...");
+      App.showToast("Your " + format.toUpperCase() + " file is downloading...");
     });
 
     renderAll();

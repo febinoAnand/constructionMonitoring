@@ -469,6 +469,40 @@
 
   var stockTxnsStore = makeStore(STOCK_TXNS_KEY, buildSeedStockTxns);
 
+  /* ---------------- Material Quotations (store price comparisons) ---------------- */
+
+  var QUOTATIONS_KEY = "cui_quotations_v1";
+  var QUOTE_UNIT_RATE = { m1: 62000, m2: 380, m3: 55, m4: 60, m5: 9, m6: 1450, m7: 260, m8: 68 };
+  /* Small, deterministic spread per (material, store) slot so the "lowest quote" story is
+     stable across reloads instead of relying on Math.random(). */
+  var QUOTE_VARIANCE = [-0.08, 0.05, -0.03, 0.12, -0.15, 0.02];
+
+  function buildSeedQuotations() {
+    var materials = buildSeedMaterials();
+    var t = today();
+    var quotes = [];
+    materials.forEach(function (mat, mIdx) {
+      var baseRate = QUOTE_UNIT_RATE[mat.id] || 100;
+      var storeCount = 3 + (mIdx % 2);
+      for (var s = 0; s < storeCount; s++) {
+        var store = SUPPLIERS[(mIdx + s) % SUPPLIERS.length];
+        var variance = QUOTE_VARIANCE[(mIdx * 3 + s) % QUOTE_VARIANCE.length];
+        var price = Math.max(1, Math.round(baseRate * (1 + variance)));
+        quotes.push({
+          id: "q_" + mat.id + "_" + s,
+          materialId: mat.id,
+          storeName: store,
+          price: price,
+          date: isoDate(addDays(t, -(3 + s * 4 + mIdx))),
+          notes: ""
+        });
+      }
+    });
+    return quotes;
+  }
+
+  var quotationsStore = makeStore(QUOTATIONS_KEY, buildSeedQuotations);
+
   /* ---------------- Expenses ---------------- */
 
   var EXPENSE_CATEGORIES = ["transport", "equipment_rental", "permits_fees", "utilities", "misc"];
@@ -689,6 +723,7 @@
     getWagePayments: wagePaymentsStore.get, saveWagePayments: wagePaymentsStore.save,
     getSalaryPayments: salaryPaymentsStore.get, saveSalaryPayments: salaryPaymentsStore.save,
     getMaterials: materialsStore.get, saveMaterials: materialsStore.save,
+    getQuotations: quotationsStore.get, saveQuotations: quotationsStore.save,
     getStockTransactions: stockTxnsStore.get, saveStockTransactions: stockTxnsStore.save,
     getExpenses: expensesStore.get, saveExpenses: expensesStore.save,
     getWorkReports: workReportsStore.get, saveWorkReports: workReportsStore.save,

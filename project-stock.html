@@ -306,6 +306,22 @@
        how many tasks it was used on) so usage across the whole project is visible at a glance,
        alongside the task-by-task breakdown below it. Moved here from the Tasks page so
        material consumption sits next to the stock ledger it's drawn from. */
+    /* Rolls up task+material-line pairs into per-material totals (qty used, how many tasks,
+       remaining balance) — shared by the on-screen summary table and its export. */
+    function computeMaterialTotals(rows) {
+      var totals = {};
+      rows.forEach(function (r) {
+        var t = totals[r.line.materialId] || (totals[r.line.materialId] = { qty: 0, taskIds: {} });
+        t.qty += r.line.qty;
+        t.taskIds[r.task.id] = true;
+      });
+      return Object.keys(totals).map(function (materialId) {
+        var m = materials.find(function (x) { return x.id === materialId; });
+        var t = totals[materialId];
+        return { material: m, qty: t.qty, taskCount: Object.keys(t.taskIds).length, balance: Business.getStockBalance(projectId, materialId).balance };
+      });
+    }
+
     function renderMaterialsUsedSummary(rows) {
       var summaryBody = document.getElementById("materialsUsedSummaryBody");
       if (!summaryBody) return;
@@ -314,24 +330,14 @@
         document.getElementById("materialsUsedTotalCount").textContent = "0 materials";
         return;
       }
-      var totals = {};
-      rows.forEach(function (r) {
-        var t = totals[r.line.materialId] || (totals[r.line.materialId] = { qty: 0, taskIds: {} });
-        t.qty += r.line.qty;
-        t.taskIds[r.task.id] = true;
-      });
-      var materialIds = Object.keys(totals);
-      document.getElementById("materialsUsedTotalCount").textContent = materialIds.length + " material" + (materialIds.length === 1 ? "" : "s");
-      summaryBody.innerHTML = materialIds.map(function (materialId) {
-        var m = materials.find(function (x) { return x.id === materialId; });
-        var t = totals[materialId];
-        var taskCount = Object.keys(t.taskIds).length;
-        var balance = Business.getStockBalance(projectId, materialId).balance;
+      var totals = computeMaterialTotals(rows);
+      document.getElementById("materialsUsedTotalCount").textContent = totals.length + " material" + (totals.length === 1 ? "" : "s");
+      summaryBody.innerHTML = totals.map(function (t) {
         return '<tr>' +
-          '<td><strong>' + (m ? m.name : "—") + '</strong></td>' +
-          '<td>' + t.qty + ' ' + (m ? m.unit : "") + '</td>' +
-          '<td>' + taskCount + ' task' + (taskCount === 1 ? "" : "s") + '</td>' +
-          '<td>' + balance + ' ' + (m ? m.unit : "") + '</td>' +
+          '<td><strong>' + (t.material ? t.material.name : "—") + '</strong></td>' +
+          '<td>' + t.qty + ' ' + (t.material ? t.material.unit : "") + '</td>' +
+          '<td>' + t.taskCount + ' task' + (t.taskCount === 1 ? "" : "s") + '</td>' +
+          '<td>' + t.balance + ' ' + (t.material ? t.material.unit : "") + '</td>' +
         '</tr>';
       }).join("");
     }
@@ -355,12 +361,17 @@
       }).join("");
     }
 
-    function renderTaskMaterialsUsage() {
+    function getTaskMaterialUsageRows() {
       var tasks = Data.getTasks().filter(function (t) { return t.projectId === projectId; });
       var rows = [];
       tasks.forEach(function (t) {
         (t.materialsUsed || []).forEach(function (l) { rows.push({ task: t, line: l }); });
       });
+      return rows;
+    }
+
+    function renderTaskMaterialsUsage() {
+      var rows = getTaskMaterialUsageRows();
       renderMaterialsUsedSummary(rows);
       renderMaterialsUsedByTask(rows);
     }
@@ -596,13 +607,77 @@
     document.getElementById("closeDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
     document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
     downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
+    /* Builds the {title, filenameBase, columns, rows} export payload for whichever download
+       button was clicked. Only Transaction History carries real per-row dates, so the From/To
+       range only filters that context — the other three are current-state snapshots. */
+    function getExportForContext(from, to) {
+      if (downloadContext === "balance") {
+        return {
+          title: "Stock Balance — " + project.name,
+          filenameBase: project.code + "-stock-balance",
+          columns: [
+            { label: "Material", value: function (r) { return r.material.name; } },
+            { label: "Category", value: function (r) { return r.material.category || "—"; } },
+            { label: "Balance", value: function (r) { return r.balance + " " + r.material.unit; } },
+            { label: "Reorder Threshold", value: function (r) { return r.material.reorderThreshold + " " + r.material.unit; } },
+            { label: "Status", value: function (r) { return !r.hasActivity ? "No activity" : r.isLowStock ? "Low stock" : "Sufficient"; } }
+          ],
+          rows: App.sortRows(Business.getAllStockBalances(projectId), balanceSortState, balanceAccessor)
+        };
+      }
+      if (downloadContext === "transactions") {
+        var allTxns = Data.getStockTransactions().filter(function (t) { return t.projectId === projectId; });
+        if (from) allTxns = allTxns.filter(function (t) { return t.date >= from; });
+        if (to) allTxns = allTxns.filter(function (t) { return t.date <= to; });
+        return {
+          title: "Transaction History — " + project.name,
+          filenameBase: project.code + "-stock-transactions",
+          columns: [
+            { label: "Date", value: function (t) { return Data.displayDate(t.date); } },
+            { label: "Invoice #", value: function (t) { return t.invoiceNumber || "—"; } },
+            { label: "Material", value: function (t) { var m = materials.find(function (x) { return x.id === t.materialId; }); return m ? m.name : "—"; } },
+            { label: "Type", value: function (t) { return t.type === "inward" ? "Inward" : t.type === "outward" ? "Outward" : "Adjustment"; } },
+            { label: "Quantity", value: function (t) { var m = materials.find(function (x) { return x.id === t.materialId; }); return t.quantity + " " + (m ? m.unit : ""); } },
+            { label: "Amount", value: function (t) { return "₹" + t.totalAmount; } },
+            { label: "Supplier / Notes", value: function (t) { return t.supplierName || t.notes || "—"; } }
+          ],
+          rows: App.sortRows(allTxns, txnSortState.field ? txnSortState : { field: "date", dir: "desc" }, txnAccessor)
+        };
+      }
+      if (downloadContext === "materials") {
+        return {
+          title: "Total Materials Used — " + project.name,
+          filenameBase: project.code + "-materials-used",
+          columns: [
+            { label: "Material", value: function (r) { return r.material ? r.material.name : "—"; } },
+            { label: "Quantity Used", value: function (r) { return r.qty + " " + (r.material ? r.material.unit : ""); } },
+            { label: "Tasks", value: "taskCount" },
+            { label: "Remaining in Stock", value: function (r) { return r.balance + " " + (r.material ? r.material.unit : ""); } }
+          ],
+          rows: computeMaterialTotals(getTaskMaterialUsageRows())
+        };
+      }
+      return {
+        title: "Materials Used by Task — " + project.name,
+        filenameBase: project.code + "-materials-by-task",
+        columns: [
+          { label: "Task", value: function (r) { return r.task.title; } },
+          { label: "Status", value: function (r) { return statusMeta(r.task.status).label; } },
+          { label: "Material", value: function (r) { var m = materials.find(function (x) { return x.id === r.line.materialId; }); return m ? m.name : "—"; } },
+          { label: "Quantity", value: function (r) { var m = materials.find(function (x) { return x.id === r.line.materialId; }); return r.line.qty + " " + (m ? m.unit : ""); } }
+        ],
+        rows: getTaskMaterialUsageRows()
+      };
+    }
     document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
-      var format = document.getElementById("dlFormat").value.toUpperCase();
+      var format = document.getElementById("dlFormat").value;
       var from = document.getElementById("dlFrom").value;
       var to = document.getElementById("dlTo").value;
-      var rangeText = (from || to) ? " for " + (from ? Data.displayDate(from) : "the start") + " – " + (to ? Data.displayDate(to) : "today") : "";
+      var rangeText = (downloadContext === "transactions" && (from || to)) ? " for " + (from ? Data.displayDate(from) : "the start") + " – " + (to ? Data.displayDate(to) : "today") : "";
+      var payload = getExportForContext(from, to);
+      App.exportTable(format, payload.filenameBase, payload.title + rangeText, project.code + rangeText, payload.columns, payload.rows);
       downloadModal.classList.remove("show");
-      App.showToast("Your " + format + " file (" + downloadLabels[downloadContext] + ")" + rangeText + " is downloading...");
+      App.showToast("Your " + format.toUpperCase() + " file (" + downloadLabels[downloadContext] + ")" + rangeText + " is downloading...");
     });
 
     renderAll();
