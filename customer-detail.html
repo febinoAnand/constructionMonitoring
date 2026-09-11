@@ -202,6 +202,11 @@
       expensesTotalBox.innerHTML =
         '<div class="big-stat"><span class="big-stat-value">₹' + Charts.fmtCompact(totalExpenses) + '</span><span class="big-stat-label">Total cash spent across ' + linkedProjects.length + ' linked project(s)</span></div>';
 
+      function ledgerAccessor(e, field) {
+        if (field === "projectName") { var pr = Data.getProjects().find(function (p) { return p.id === e.projectId; }); return pr ? pr.name : ""; }
+        return e[field];
+      }
+
       function renderLedger() {
         var l = Business.getCustomerLedger(custId);
         document.getElementById("statGrid").innerHTML =
@@ -243,10 +248,7 @@
         var entries = App.sortRows(
           l.entries,
           ledgerSortState.field ? ledgerSortState : { field: "date", dir: "desc" },
-          function (e, field) {
-            if (field === "projectName") { var pr = Data.getProjects().find(function (p) { return p.id === e.projectId; }); return pr ? pr.name : ""; }
-            return e[field];
-          }
+          ledgerAccessor
         );
         document.getElementById("entryCount").textContent = entries.length + " entries";
         var body = document.getElementById("ledgerBody");
@@ -357,9 +359,29 @@
       document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
       downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
       document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
-        var format = document.getElementById("dlFormat").value.toUpperCase();
+        var format = document.getElementById("dlFormat").value;
+        var from = document.getElementById("dlFrom").value;
+        var to = document.getElementById("dlTo").value;
+        var rows = App.sortRows(
+          Business.getCustomerLedger(custId).entries.filter(function (e) {
+            if (from && e.date < from) return false;
+            if (to && e.date > to) return false;
+            return true;
+          }),
+          ledgerSortState.field ? ledgerSortState : { field: "date", dir: "desc" },
+          ledgerAccessor
+        );
+        var rangeText = (from || to) ? " (" + (from ? Data.displayDate(from) : "start") + " to " + (to ? Data.displayDate(to) : "today") + ")" : "";
+        App.exportTable(format, cust.name + "-ledger", "Ledger History — " + cust.name + rangeText, cust.name + rangeText,
+          [
+            { label: "Date", value: function (e) { return Data.displayDate(e.date); } },
+            { label: "Type", value: function (e) { return e.type === "invoice" ? "Invoice" : "Receipt"; } },
+            { label: "Project", value: function (e) { var proj = Data.getProjects().find(function (p) { return p.id === e.projectId; }); return proj ? proj.name : "—"; } },
+            { label: "Description", value: function (e) { return (e.description || "—") + (e.invoiceNumber ? " (" + e.invoiceNumber + ")" : ""); } },
+            { label: "Amount", value: function (e) { return "₹" + e.amount; } }
+          ], rows);
         downloadModal.classList.remove("show");
-        App.showToast("Your " + format + " file is downloading...");
+        App.showToast("Your " + format.toUpperCase() + " file is downloading...");
       });
 
       var addLedgerModal = document.getElementById("addLedgerModal");

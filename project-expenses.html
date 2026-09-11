@@ -165,6 +165,27 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="dateRangeModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Filter by Date</h3><p>Show expenses within a date range.</p></div>
+      <button class="modal-close" id="closeDateRangeModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="dateRangeForm">
+        <div class="field-grid">
+          <div class="field"><label>From Date</label><input type="date" id="drFrom"></div>
+          <div class="field"><label>To Date</label><input type="date" id="drTo"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="drClear">Clear</button>
+      <button class="btn btn-primary" id="drApply">Apply</button>
+    </div>
+  </div>
+</div>
+
 <script src="assets/data.js"></script>
 <script src="assets/business.js"></script>
 <script src="assets/app.js"></script>
@@ -238,6 +259,38 @@
       renderAll();
     });
 
+    /* Clicking the "Most recent" stat card also asks for a From/To range, applying to the
+       same expFrom/expTo filter as the form below the table — kept in sync both ways so
+       either entry point reflects the currently applied range. */
+    var dateRangeModal = document.getElementById("dateRangeModal");
+    function openDateRangeModal() {
+      document.getElementById("drFrom").value = expFrom;
+      document.getElementById("drTo").value = expTo;
+      dateRangeModal.classList.add("show");
+    }
+    function closeDateRangeModal() { dateRangeModal.classList.remove("show"); }
+    document.getElementById("closeDateRangeModal").addEventListener("click", closeDateRangeModal);
+    dateRangeModal.addEventListener("click", function (e) { if (e.target === dateRangeModal) closeDateRangeModal(); });
+    document.getElementById("drApply").addEventListener("click", function () {
+      expFrom = document.getElementById("drFrom").value;
+      expTo = document.getElementById("drTo").value;
+      document.getElementById("expFromInput").value = expFrom;
+      document.getElementById("expToInput").value = expTo;
+      fullPage = 1;
+      closeDateRangeModal();
+      renderAll();
+    });
+    document.getElementById("drClear").addEventListener("click", function () {
+      expFrom = ""; expTo = "";
+      document.getElementById("drFrom").value = "";
+      document.getElementById("drTo").value = "";
+      document.getElementById("expFromInput").value = "";
+      document.getElementById("expToInput").value = "";
+      fullPage = 1;
+      closeDateRangeModal();
+      renderAll();
+    });
+
     document.getElementById("fullHeadRow").innerHTML =
       App.sortableTh("Date", "date", fullSortState) +
       App.sortableTh("Category", "category", fullSortState) +
@@ -246,7 +299,7 @@
       ((canUpdate || canDelete) ? '<th></th>' : '');
     App.wireSort(document.getElementById("fullHeadRow"), fullSortState, function () { fullPage = 1; renderAll(); });
 
-    function renderAll() {
+    function getMergedExpenses() {
       var expenses = Data.getExpenses().filter(function (e) { return e.projectId === projectId; });
       var wagePayments = Data.getWagePayments().filter(function (p) { return p.projectId === projectId; });
       var salaryPayments = Data.getSalaryPayments().filter(function (p) { return p.projectId === projectId; });
@@ -256,7 +309,7 @@
       var supervisors = Business.getSupervisorsForProject(projectId);
       var today = Data.isoDate(Data.today());
 
-      var merged = expenses.map(function (e) {
+      return expenses.map(function (e) {
         return { date: e.date, category: e.category, description: e.description, amount: e.amount, id: e.id, isWage: false, taskId: e.taskId };
       }).concat(wagePayments.map(function (p) {
         var lab = labourers.find(function (l) { return l.id === p.labourerId; });
@@ -279,20 +332,47 @@
           amount: u.monthlySalary, id: "supsal_" + u.id, isSupervisorSalary: true
         };
       }));
+    }
+
+    function getFilteredExpenses() {
+      return getMergedExpenses().filter(function (e) {
+        if (expFrom && e.date < expFrom) return false;
+        if (expTo && e.date > expTo) return false;
+        return true;
+      });
+    }
+
+    function renderAll() {
+      var merged = getMergedExpenses();
+      var periodExpenses = getFilteredExpenses();
+      var isFiltered = !!(expFrom || expTo);
 
       var total = merged.reduce(function (s, e) { return s + e.amount; }, 0);
+      /* By Category and the table below both reflect the active From/To filter — everything
+         else on this page (stat cards, the recent-activity bar chart) stays an all-time view. */
       var byCat = {};
-      merged.forEach(function (e) { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
+      periodExpenses.forEach(function (e) { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
       var mergedByDate = App.sortRows(merged, { field: "date", dir: "desc" });
+
+      /* This card doubles as the date-filter trigger, so once a range is applied it shows
+         that range (and its own label) instead of the all-time "most recent" date — a clear
+         sign the filter took effect right where it was set. */
+      var dateCardLabel = isFiltered ? "Filtered range" : "Most recent";
+      var dateCardValue = isFiltered
+        ? (expFrom ? Data.displayDate(expFrom) : "Start") + " – " + (expTo ? Data.displayDate(expTo) : "Today")
+        : (mergedByDate[0] ? Data.displayDate(mergedByDate[0].date) : "—");
 
       document.getElementById("statGrid").innerHTML =
         '<div class="stat-card"><div class="stat-icon icon-orange">' + App.svg("wallet") + '</div><div class="stat-value">₹' + Charts.fmtCompact(total) + '</div><div class="stat-label">Total expenses (incl. wages &amp; salary)</div></div>' +
         '<div class="stat-card"><div class="stat-icon icon-blue">' + App.svg("fileText") + '</div><div class="stat-value">' + merged.length + '</div><div class="stat-label">Entries logged</div></div>' +
-        '<div class="stat-card"><div class="stat-icon icon-green">' + App.svg("calendar") + '</div><div class="stat-value">' + (mergedByDate[0] ? Data.displayDate(mergedByDate[0].date) : "—") + '</div><div class="stat-label">Most recent</div></div>';
+        '<div class="stat-card' + (isFiltered ? ' stat-card-active' : '') + '" id="mostRecentCard" style="cursor:pointer" title="Click to filter by date"><div class="stat-icon icon-green">' + App.svg("calendar") + '</div><div class="stat-value" style="' + (isFiltered ? "font-size:19px" : "") + '">' + dateCardValue + '</div><div class="stat-label">' + dateCardLabel + '</div></div>';
+
+      var mostRecentCardEl = document.getElementById("mostRecentCard");
+      if (mostRecentCardEl) mostRecentCardEl.addEventListener("click", openDateRangeModal);
 
       Charts.renderDonutChart(document.getElementById("catChart"), Object.keys(byCat).map(function (k) {
         return { label: categoryLabels[k] || k, value: byCat[k] };
-      }), { centerLabel: "Total", formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
+      }), { centerLabel: isFiltered ? "Filtered" : "Total", formatValue: function (v) { return "₹" + Charts.fmtCompact(v); } });
 
       var materialSummary = Business.getMaterialCostBreakdown(projectId);
       var cost = Business.getProjectCost(projectId);
@@ -328,13 +408,7 @@
          one line — so picking, say, 3rd to 8th shows what was already spent on the 1st and
          2nd as a starting balance, then just that window's own transactions below it. */
       var openingBalance = expFrom ? merged.filter(function (e) { return e.date < expFrom; }).reduce(function (s, e) { return s + e.amount; }, 0) : 0;
-      var periodExpenses = merged.filter(function (e) {
-        if (expFrom && e.date < expFrom) return false;
-        if (expTo && e.date > expTo) return false;
-        return true;
-      });
       var periodTotal = periodExpenses.reduce(function (s, e) { return s + e.amount; }, 0);
-      var isFiltered = !!(expFrom || expTo);
 
       var hasActionsCol = canUpdate || canDelete;
       var summaryColspan = hasActionsCol ? 4 : 3;
@@ -486,9 +560,18 @@
     document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
     downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
     document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
-      var format = document.getElementById("dlFormat").value.toUpperCase();
+      var format = document.getElementById("dlFormat").value;
+      var rows = App.sortRows(getFilteredExpenses(), fullSortState.field ? fullSortState : { field: "date", dir: "desc" });
+      var rangeText = (expFrom || expTo) ? " (" + (expFrom ? Data.displayDate(expFrom) : "start") + " to " + (expTo ? Data.displayDate(expTo) : "today") + ")" : "";
+      App.exportTable(format, project.code + "-expenses", "Expenses — " + project.name + rangeText, project.code + rangeText,
+        [
+          { label: "Date", value: function (e) { return Data.displayDate(e.date); } },
+          { label: "Category", value: function (e) { return categoryLabels[e.category] || e.category; } },
+          { label: "Description", value: function (e) { return e.description || "—"; } },
+          { label: "Amount", value: function (e) { return "₹" + e.amount; } }
+        ], rows);
       downloadModal.classList.remove("show");
-      App.showToast("Your " + format + " file is downloading...");
+      App.showToast("Your " + format.toUpperCase() + " file is downloading...");
     });
 
     renderAll();

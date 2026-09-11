@@ -305,7 +305,10 @@
     mail: '<path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><polyline points="22 6 12 13 2 6"/>',
     download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
     key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2l-9.6 9.6"/><path d="M15.5 7.5L19 11"/><path d="M12 11l4 4"/>',
-    warehouse: '<path d="M3 21V10l9-6 9 6v11"/><path d="M3 21h18"/><path d="M9 21v-7h6v7"/>'
+    warehouse: '<path d="M3 21V10l9-6 9 6v11"/><path d="M3 21h18"/><path d="M9 21v-7h6v7"/>',
+    messageCircle: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+    sparkles: '<path d="M12 3v4M12 17v4M5 5l2.5 2.5M16.5 16.5L19 19M3 12h4M17 12h4M5 19l2.5-2.5M16.5 7.5L19 5"/><circle cx="12" cy="12" r="3"/>',
+    send: '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'
   };
 
   function svg(name, extraClass) {
@@ -322,6 +325,7 @@
     /* Labourers is hidden from the dashboard sidebar. */
     { key: "godown", href: "godown.html", label: "Godown", icon: "warehouse", require: "stock:read" },
     { key: "materials", href: "godown-materials.html", label: "Materials", icon: "box", require: "stock:read" },
+    { key: "quotation", href: "quotation.html", label: "Quotation", icon: "fileText", require: "stock:read" },
     { section: "Business" },
     { key: "customers", href: "customers.html", label: "Customers", icon: "briefcase", require: "customers:read" },
     { section: "Account" },
@@ -344,6 +348,7 @@
     initLogout();
     initUserBadge();
     applyRoleVisibility();
+    initAIAssistant();
 
     var role = getCurrentRole();
     var badge = document.querySelector("[data-user-role-badge]");
@@ -556,6 +561,414 @@
     return { page: page, totalPages: totalPages, pageItems: rows.slice((page - 1) * pageSize, page * pageSize) };
   }
 
+  /* ============================================================
+     Table export (CSV / PDF).
+     Every download modal in the app shares this: pass the same
+     `columns` ({label, value(row)}) + `rows` the table is currently
+     showing (already filtered/sorted) and the caller's chosen format.
+     CSV downloads directly as a file; PDF opens a print-formatted
+     window and triggers the browser's print dialog (Save as PDF) —
+     no external library, works offline.
+     ============================================================ */
+
+  function escapeHtml(s) {
+    return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function cellValue(col, row) {
+    var v = typeof col.value === "function" ? col.value(row) : row[col.key];
+    return v === null || v === undefined ? "" : v;
+  }
+
+  function downloadCSV(filename, columns, rows) {
+    function csvCell(v) {
+      var s = String(v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+    var lines = [columns.map(function (c) { return csvCell(c.label); }).join(",")];
+    rows.forEach(function (row) {
+      lines.push(columns.map(function (c) { return csvCell(cellValue(c, row)); }).join(","));
+    });
+    var blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function downloadPDF(title, subtitle, columns, rows) {
+    var win = window.open("", "_blank");
+    if (!win) { showToast("Allow pop-ups to download a PDF", true); return; }
+    var theadHtml = "<tr>" + columns.map(function (c) { return "<th>" + escapeHtml(c.label) + "</th>"; }).join("") + "</tr>";
+    var tbodyHtml = rows.length
+      ? rows.map(function (row) {
+          return "<tr>" + columns.map(function (c) { return "<td>" + escapeHtml(cellValue(c, row)) + "</td>"; }).join("") + "</tr>";
+        }).join("")
+      : '<tr><td colspan="' + columns.length + '" style="text-align:center;color:#888">No rows to show.</td></tr>';
+    win.document.write(
+      "<!DOCTYPE html><html><head><title>" + escapeHtml(title) + "</title><meta charset=\"utf-8\"><style>" +
+      "body{font-family:Arial,Helvetica,sans-serif;padding:24px;color:#1a1a1a}" +
+      "h1{font-size:18px;margin:0 0 4px}p{margin:0 0 18px;color:#666;font-size:12px}" +
+      "table{width:100%;border-collapse:collapse;font-size:11px}" +
+      "th,td{border:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:top}" +
+      "th{background:#f2f2f2}" +
+      "@media print{body{padding:0}}" +
+      "</style></head><body>" +
+      "<h1>" + escapeHtml(title) + "</h1>" + (subtitle ? "<p>" + escapeHtml(subtitle) + "</p>" : "") +
+      "<table><thead>" + theadHtml + "</thead><tbody>" + tbodyHtml + "</tbody></table>" +
+      "<script>window.onload=function(){window.print();};<" + "/script>" +
+      "</body></html>"
+    );
+    win.document.close();
+  }
+
+  /* Shared handler for the standard download modal (#downloadModal / #dlFormat) used across
+     the app: pass a function that returns {columns, rows, title, subtitle, filenameBase} for
+     whatever is currently on screen, and this builds the CSV or PDF from it. */
+  function exportTable(format, filenameBase, title, subtitle, columns, rows) {
+    var safeBase = String(filenameBase || title || "export").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    if (format === "csv") {
+      downloadCSV(safeBase + ".csv", columns, rows);
+    } else {
+      downloadPDF(title, subtitle, columns, rows);
+    }
+  }
+
+  /* ============================================================
+     AI Assistant — a lightweight, local (non-LLM) Q&A widget over
+     the app's own data. Global: initAIAssistant() is called once
+     from renderShell() so it's available on every authenticated
+     page. State (open/closed + message history) lives in
+     sessionStorage so a conversation survives page-to-page
+     navigation within the same login session — this is a static
+     multi-page app, not an SPA, so every link click is a full
+     page load that would otherwise wipe the chat.
+     ============================================================ */
+
+  var AI_CHAT_KEY = "cui_ai_chat_v1";
+
+  function aiLoadState() {
+    try {
+      var raw = sessionStorage.getItem(AI_CHAT_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return { open: false, messages: [] };
+  }
+  function aiSaveState(state) {
+    try { sessionStorage.setItem(AI_CHAT_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+
+  function aiFmtRupee(n) {
+    return "₹" + Math.round(n || 0).toLocaleString("en-IN");
+  }
+
+  /* An explicit project name mentioned in the question wins; otherwise scope to whatever
+     project the current page is showing (?id= in the URL); otherwise every project the
+     logged-in user can see. */
+  function aiResolveScope(qLower) {
+    var all = visibleProjects();
+    var named = all.filter(function (p) { return qLower.indexOf(p.name.toLowerCase()) !== -1; });
+    if (named.length === 1) return { projects: named };
+
+    var urlId = new URLSearchParams(window.location.search).get("id");
+    if (urlId) {
+      var current = all.find(function (p) { return p.id === urlId; });
+      if (current) return { projects: [current] };
+    }
+    return { projects: all };
+  }
+
+  function aiScopeLabel(scope) {
+    if (scope.projects.length === 1) return "for " + scope.projects[0].name;
+    if (!scope.projects.length) return "";
+    return "across all " + scope.projects.length + " of your projects";
+  }
+
+  function aiTasksIn(scope) {
+    var ids = scope.projects.map(function (p) { return p.id; });
+    return window.Data.getTasks().filter(function (t) { return ids.indexOf(t.projectId) !== -1; });
+  }
+
+  function aiProjectTag(scope, projectId) {
+    if (scope.projects.length === 1) return "";
+    var p = scope.projects.find(function (x) { return x.id === projectId; });
+    return p ? " (" + p.name + ")" : "";
+  }
+
+  function aiListLines(items, limit) {
+    var shown = items.slice(0, limit);
+    var lines = shown.map(function (s) { return "• " + s; });
+    if (items.length > limit) lines.push("…and " + (items.length - limit) + " more.");
+    return lines.join("\n");
+  }
+
+  function aiHelpText() {
+    return "I can answer questions about your projects using the data already in the app, e.g.:\n" +
+      "• \"What tasks are overdue?\"\n" +
+      "• \"How much have we spent in total?\"\n" +
+      "• \"Which materials are low on stock?\"\n" +
+      "• \"How much wages are owed?\"\n" +
+      "• \"What's the progress on Skyline Residency?\"\n" +
+      "• \"Is any project over budget?\"\n" +
+      "Mention a project by name to scope a question to it — otherwise I'll use whatever project you're currently viewing, or all of your projects.";
+  }
+
+  function answerAssistantQuery(question) {
+    var q = question.toLowerCase().trim();
+    if (!q) return "Ask me something about your projects — tasks, expenses, stock, wages, or budget.";
+
+    if (/^(hi|hello|hey|yo)\b/.test(q) || /\bhelp\b|what can you do|what do you do/.test(q)) {
+      return aiHelpText();
+    }
+
+    var scope = aiResolveScope(q);
+    if (!scope.projects.length) return "You don't have access to any projects yet.";
+
+    if (/overdue|behind schedule|\blate\b/.test(q)) {
+      var today = window.Data.isoDate(window.Data.today());
+      var overdueTasks = aiTasksIn(scope).filter(function (t) { return t.status !== "done" && t.date && t.date < today; });
+      if (!overdueTasks.length) return "No overdue tasks " + aiScopeLabel(scope) + ". Nice work!";
+      return overdueTasks.length + " task" + (overdueTasks.length === 1 ? " is" : "s are") + " overdue " + aiScopeLabel(scope) + ":\n" +
+        aiListLines(overdueTasks.map(function (t) { return t.title + aiProjectTag(scope, t.projectId) + " — was due " + window.Data.displayDate(t.date); }), 6);
+    }
+
+    if (/in.?progress/.test(q)) {
+      var ipTasks = aiTasksIn(scope).filter(function (t) { return t.status === "in_progress"; });
+      if (!ipTasks.length) return "No tasks are currently in progress " + aiScopeLabel(scope) + ".";
+      return ipTasks.length + " task" + (ipTasks.length === 1 ? " is" : "s are") + " in progress " + aiScopeLabel(scope) + ":\n" +
+        aiListLines(ipTasks.map(function (t) { return t.title + aiProjectTag(scope, t.projectId); }), 6);
+    }
+
+    if (/incomplete|pending|not done|remaining|to.?do/.test(q)) {
+      var pendTasks = aiTasksIn(scope).filter(function (t) { return t.status !== "done"; });
+      if (!pendTasks.length) return "Every task is done " + aiScopeLabel(scope) + ".";
+      var byStatus = {};
+      pendTasks.forEach(function (t) { byStatus[t.status] = (byStatus[t.status] || 0) + 1; });
+      var breakdown = Object.keys(byStatus).map(function (k) { return byStatus[k] + " " + k.replace(/_/g, " "); }).join(", ");
+      return pendTasks.length + " task" + (pendTasks.length === 1 ? " is" : "s are") + " not yet done " + aiScopeLabel(scope) + " (" + breakdown + "):\n" +
+        aiListLines(pendTasks.map(function (t) { return t.title + aiProjectTag(scope, t.projectId); }), 6);
+    }
+
+    if (/completed|finished|\bdone\b/.test(q)) {
+      var doneTasks = aiTasksIn(scope).filter(function (t) { return t.status === "done"; });
+      var totalTasks = aiTasksIn(scope).length;
+      if (!totalTasks) return "There are no tasks " + aiScopeLabel(scope) + " yet.";
+      return doneTasks.length + " of " + totalTasks + " task" + (totalTasks === 1 ? "" : "s") + " " + (totalTasks === 1 ? "is" : "are") + " marked done " + aiScopeLabel(scope) + ".";
+    }
+
+    if (/how many task/.test(q)) {
+      var allTasks = aiTasksIn(scope);
+      return allTasks.length + " task" + (allTasks.length === 1 ? "" : "s") + " total " + aiScopeLabel(scope) + ".";
+    }
+
+    if (/low stock|reorder|running (out|low)/.test(q)) {
+      var scopeIds = scope.projects.map(function (p) { return p.id; });
+      var alerts = window.Business.getLowStockAlerts().filter(function (a) { return scopeIds.indexOf(a.project.id) !== -1; });
+      if (!alerts.length) return "Nothing is low on stock " + aiScopeLabel(scope) + ".";
+      return alerts.length + " material" + (alerts.length === 1 ? " is" : "s are") + " low on stock " + aiScopeLabel(scope) + ":\n" +
+        aiListLines(alerts.map(function (a) { return a.material.name + aiProjectTag(scope, a.project.id) + " — " + a.balance + " " + a.material.unit + " left"; }), 6);
+    }
+
+    if (/wages?.*(owed|due|unpaid)|owe.*(labour|wages)/.test(q)) {
+      if (scope.projects.length === 1) {
+        var owed = window.Business.getWagesDueTotal(scope.projects[0].id);
+        return "Wages owed " + aiScopeLabel(scope) + ": " + aiFmtRupee(owed) + ".";
+      }
+      var owedRows = scope.projects.map(function (p) { return { p: p, owed: window.Business.getWagesDueTotal(p.id) }; }).filter(function (r) { return r.owed > 0; });
+      var totalOwed = owedRows.reduce(function (s, r) { return s + r.owed; }, 0);
+      if (!owedRows.length) return "No wages currently owed " + aiScopeLabel(scope) + ".";
+      return "Wages owed " + aiScopeLabel(scope) + ": " + aiFmtRupee(totalOwed) + " total.\n" +
+        aiListLines(owedRows.map(function (r) { return r.p.name + " — " + aiFmtRupee(r.owed); }), 6);
+    }
+
+    if (/budget/.test(q)) {
+      var budRows = scope.projects.map(function (p) {
+        var cost = window.Business.getProjectCost(p.id);
+        return { p: p, spent: cost.totalCashSpent, budget: p.budget || 0 };
+      });
+      if (scope.projects.length === 1) {
+        var r0 = budRows[0];
+        if (!r0.budget) return r0.p.name + " doesn't have a budget set.";
+        var pct = Math.round((r0.spent / r0.budget) * 100);
+        return r0.p.name + " has spent " + aiFmtRupee(r0.spent) + " of a " + aiFmtRupee(r0.budget) + " budget (" + pct + "%)" + (r0.spent > r0.budget ? " — over budget." : ".");
+      }
+      var overBudget = budRows.filter(function (r) { return r.budget && r.spent > r.budget; });
+      if (!overBudget.length) return "No projects are over budget " + aiScopeLabel(scope) + ".";
+      return overBudget.length + " project" + (overBudget.length === 1 ? " is" : "s are") + " over budget:\n" +
+        aiListLines(overBudget.map(function (r) { return r.p.name + " — " + aiFmtRupee(r.spent) + " spent vs " + aiFmtRupee(r.budget) + " budget"; }), 6);
+    }
+
+    if (/progress|% ?complete|percent complete|how far along/.test(q)) {
+      var progRows = scope.projects.map(function (p) { return { p: p, est: window.Business.estimateCompletion(p) }; });
+      if (scope.projects.length === 1) {
+        var est0 = progRows[0].est;
+        if (!est0.hasData) return "No progress has been logged for " + progRows[0].p.name + " yet.";
+        return progRows[0].p.name + " is " + est0.percentComplete + "% complete" + (est0.estimatedDate ? ", estimated finish " + window.Data.displayDate(est0.estimatedDate) : "") + (est0.atRisk ? " — at risk of missing its target date." : ".");
+      }
+      return aiListLines(progRows.map(function (r) { return r.p.name + " — " + (r.est.hasData ? r.est.percentComplete + "% complete" : "no progress logged"); }), 8);
+    }
+
+    if (/total expense|how much.*spen|total cost|total spend/.test(q)) {
+      var costRows = scope.projects.map(function (p) { return { p: p, cost: window.Business.getProjectCost(p.id) }; });
+      if (scope.projects.length === 1) {
+        var c0 = costRows[0].cost;
+        return costRows[0].p.name + " has spent " + aiFmtRupee(c0.totalCashSpent) + " total — materials " + aiFmtRupee(c0.stockCost) + ", wages " + aiFmtRupee(c0.wagesPaid) + ", supervisor salary " + aiFmtRupee(c0.supervisorSalary) + ", other " + aiFmtRupee(c0.otherExpenses) + ".";
+      }
+      var totalSpent = costRows.reduce(function (s, r) { return s + r.cost.totalCashSpent; }, 0);
+      return "Total spent " + aiScopeLabel(scope) + ": " + aiFmtRupee(totalSpent) + ".\n" +
+        aiListLines(costRows.map(function (r) { return r.p.name + " — " + aiFmtRupee(r.cost.totalCashSpent); }), 8);
+    }
+
+    var categoryMap = { transport: "transport", equipment: "equipment_rental", permit: "permits_fees", utilit: "utilities", supervisor: "supervisor_salary", misc: "misc" };
+    var catKey = Object.keys(categoryMap).filter(function (k) { return q.indexOf(k) !== -1; })[0];
+    if (catKey) {
+      var catIds = scope.projects.map(function (p) { return p.id; });
+      var catExpenses = window.Data.getExpenses().filter(function (e) { return catIds.indexOf(e.projectId) !== -1 && e.category === categoryMap[catKey]; });
+      var catTotal = catExpenses.reduce(function (s, e) { return s + e.amount; }, 0);
+      return aiFmtRupee(catTotal) + " spent on " + catKey + "-related expenses " + aiScopeLabel(scope) + " (" + catExpenses.length + " entr" + (catExpenses.length === 1 ? "y" : "ies") + ").";
+    }
+
+    var materials = window.Data.getMaterials();
+    /* Match on the material's base name with any "(...)" qualifier stripped (e.g. "Cement
+       (OPC 53)" -> "cement"), or any of its own significant words, so "how much cement do we
+       have" matches without the question needing the material's exact catalog name. */
+    var mentionedMaterial = materials.find(function (m) {
+      var base = m.name.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim();
+      if (base && q.indexOf(base) !== -1) return true;
+      return base.split(/\s+/).some(function (w) { return w.length >= 4 && q.indexOf(w) !== -1; });
+    });
+    if (mentionedMaterial && /stock|balance|left|how much|remaining/.test(q)) {
+      if (scope.projects.length === 1) {
+        var singleBal = window.Business.getStockBalance(scope.projects[0].id, mentionedMaterial.id).balance;
+        return mentionedMaterial.name + " balance " + aiScopeLabel(scope) + ": " + singleBal + " " + mentionedMaterial.unit + ".";
+      }
+      var matRows = scope.projects.map(function (p) { return { p: p, bal: window.Business.getStockBalance(p.id, mentionedMaterial.id).balance }; }).filter(function (r) { return r.bal !== 0; });
+      var matTotal = matRows.reduce(function (s, r) { return s + r.bal; }, 0);
+      if (!matRows.length) return "No " + mentionedMaterial.name + " recorded " + aiScopeLabel(scope) + ".";
+      return mentionedMaterial.name + " total balance " + aiScopeLabel(scope) + ": " + matTotal + " " + mentionedMaterial.unit + ".\n" +
+        aiListLines(matRows.map(function (r) { return r.p.name + " — " + r.bal + " " + mentionedMaterial.unit; }), 8);
+    }
+
+    if (/how many project|list project|active project|all project/.test(q)) {
+      var visProjects = visibleProjects();
+      if (!visProjects.length) return "You don't have access to any projects.";
+      return visProjects.length + " project" + (visProjects.length === 1 ? "" : "s") + " you can see:\n" +
+        aiListLines(visProjects.map(function (p) { return p.name + " (" + p.code + ") — " + p.status; }), 10);
+    }
+
+    return "I couldn't match that to something I track yet. " + aiHelpText();
+  }
+
+  var AI_SUGGESTIONS = ["What's overdue?", "Total expenses?", "Low stock materials?", "Wages owed?"];
+
+  function aiRenderMessages(state) {
+    var el = document.getElementById("aiAssistantMessages");
+    if (!el) return;
+    el.innerHTML = state.messages.map(function (m) {
+      return '<div class="ai-msg ' + (m.role === "user" ? "ai-msg-user" : "ai-msg-bot") + '">' + escapeHtml(m.text) + '</div>';
+    }).join("");
+    var suggestionsEl = document.getElementById("aiAssistantSuggestions");
+    if (suggestionsEl) suggestionsEl.style.display = state.messages.length ? "none" : "flex";
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function initAIAssistant() {
+    if (document.getElementById("aiAssistantFab")) return;
+
+    var fab = document.createElement("button");
+    fab.className = "ai-fab";
+    fab.id = "aiAssistantFab";
+    fab.type = "button";
+    fab.setAttribute("aria-label", "AI Assistant");
+    fab.innerHTML = svg("messageCircle");
+    document.body.appendChild(fab);
+
+    var panel = document.createElement("div");
+    panel.className = "ai-panel";
+    panel.id = "aiAssistantPanel";
+    panel.innerHTML =
+      '<div class="ai-panel-header">' +
+        '<div class="ai-panel-title">' + svg("sparkles") + 'AI Assistant<span class="ai-panel-badge">Local</span></div>' +
+        '<div class="ai-panel-header-actions">' +
+          '<button type="button" class="ai-panel-icon-btn" id="aiAssistantClear" title="Clear chat">' + svg("trash") + '</button>' +
+          '<button type="button" class="ai-panel-icon-btn ai-panel-close-x" id="aiAssistantClose" title="Close">&times;</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="ai-panel-messages" id="aiAssistantMessages"></div>' +
+      '<div class="ai-panel-suggestions" id="aiAssistantSuggestions">' +
+        AI_SUGGESTIONS.map(function (s) { return '<button type="button" class="ai-suggestion-chip" data-ai-suggestion="' + escapeHtml(s) + '">' + s + '</button>'; }).join("") +
+      '</div>' +
+      '<form class="ai-panel-input-row" id="aiAssistantForm">' +
+        '<input type="text" id="aiAssistantInput" placeholder="Ask about tasks, expenses, stock…" autocomplete="off">' +
+        '<button type="submit" class="ai-panel-send" aria-label="Send">' + svg("send") + '</button>' +
+      '</form>';
+    document.body.appendChild(panel);
+
+    var state = aiLoadState();
+    if (state.open) panel.classList.add("show");
+    aiRenderMessages(state);
+
+    function persist() { aiSaveState(state); }
+
+    fab.addEventListener("click", function () {
+      state.open = !state.open;
+      panel.classList.toggle("show", state.open);
+      persist();
+      if (state.open) document.getElementById("aiAssistantInput").focus();
+    });
+    document.getElementById("aiAssistantClose").addEventListener("click", function () {
+      state.open = false;
+      panel.classList.remove("show");
+      persist();
+    });
+    document.getElementById("aiAssistantClear").addEventListener("click", function () {
+      state.messages = [];
+      persist();
+      aiRenderMessages(state);
+    });
+
+    function sendMessage(text) {
+      text = text.trim();
+      if (!text) return;
+      state.messages.push({ role: "user", text: text });
+      persist();
+      aiRenderMessages(state);
+
+      var messagesEl = document.getElementById("aiAssistantMessages");
+      var typingEl = document.createElement("div");
+      typingEl.className = "ai-msg ai-msg-bot ai-msg-typing";
+      typingEl.innerHTML = "<span></span><span></span><span></span>";
+      messagesEl.appendChild(typingEl);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+
+      setTimeout(function () {
+        var answer;
+        try { answer = answerAssistantQuery(text); } catch (e) { answer = "Something went wrong answering that — try rephrasing."; }
+        state.messages.push({ role: "assistant", text: answer });
+        persist();
+        aiRenderMessages(state);
+      }, 380);
+    }
+
+    document.getElementById("aiAssistantForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var input = document.getElementById("aiAssistantInput");
+      sendMessage(input.value);
+      input.value = "";
+    });
+    document.getElementById("aiAssistantSuggestions").addEventListener("click", function (e) {
+      var chip = e.target.closest("[data-ai-suggestion]");
+      if (!chip) return;
+      sendMessage(chip.getAttribute("data-ai-suggestion"));
+    });
+  }
+
   window.App = {
     isLoggedIn: isLoggedIn,
     requireAuth: requireAuth,
@@ -586,6 +999,9 @@
     wireSort: wireSort,
     refreshSortArrows: refreshSortArrows,
     renderPager: renderPager,
-    paginate: paginate
+    paginate: paginate,
+    downloadCSV: downloadCSV,
+    downloadPDF: downloadPDF,
+    exportTable: exportTable
   };
 })();

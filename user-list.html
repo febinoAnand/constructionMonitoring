@@ -48,7 +48,13 @@
         <input type="hidden" id="editId">
         <div class="field-grid">
           <div class="field full"><label>Full Name <span class="req">*</span></label><input type="text" id="fName" required></div>
-          <div class="field"><label>Role</label><select id="fRole"></select></div>
+          <div class="field">
+            <label>Role</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="fRole" style="flex:1"></select>
+              <button type="button" class="link-btn" id="newRoleLink" style="white-space:nowrap;display:none">+ New Role</button>
+            </div>
+          </div>
           <div class="field"><label>Username</label><input type="text" id="fUsername" placeholder="e.g. ramesh.babu"></div>
           <div class="field"><label>Phone</label><input type="text" id="fPhone"></div>
           <div class="field"><label>Email</label><input type="email" id="fEmail"></div>
@@ -60,6 +66,45 @@
       <button class="btn btn-outline" id="modalResetBtn" style="display:none">Reset Password</button>
       <button class="btn btn-outline" id="modalInviteBtn">Send Invite</button>
       <button class="btn btn-primary" id="saveBtn">Save User</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay modal-overlay-stacked" id="newRoleModal">
+  <div class="modal-box wide">
+    <div class="modal-header">
+      <div><h3>New Role</h3><p>Define a custom role's access, then it's selected for the user you're adding.</p></div>
+      <button class="modal-close" id="closeNewRoleModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="newRoleForm">
+        <div class="field-grid" style="margin-bottom:20px">
+          <div class="field"><label>Role Name <span class="req">*</span></label><input type="text" id="nrName" required></div>
+          <div class="field">
+            <label>Project Visibility</label>
+            <div class="status-toggle-group">
+              <label data-state="active"><input type="radio" name="nrAllProjects" value="true"><span>Sees all projects</span></label>
+              <label data-state="inactive"><input type="radio" name="nrAllProjects" value="false" checked><span>Assigned projects only</span></label>
+            </div>
+          </div>
+          <div class="field full"><label>Description</label><input type="text" id="nrDesc"></div>
+        </div>
+
+        <div class="perm-table">
+          <div class="perm-head-row">
+            <div></div>
+            <div class="perm-col-label">Create</div>
+            <div class="perm-col-label">Read</div>
+            <div class="perm-col-label">Update</div>
+            <div class="perm-col-label">Delete</div>
+          </div>
+          <div id="nrPermRows"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="cancelNewRoleModal">Cancel</button>
+      <button class="btn btn-primary" id="saveNewRoleBtn">Save Role</button>
     </div>
   </div>
 </div>
@@ -78,7 +123,9 @@
     var canCreate = App.can("users", "create");
     var canEdit = App.can("users", "update");
     var canDelete = App.can("users", "delete");
+    var canManageRoles = App.can("roles", "create");
     if (!canCreate) document.getElementById("addBtn").style.display = "none";
+    if (canManageRoles) document.getElementById("newRoleLink").style.display = "";
 
     var roleSelect = document.getElementById("fRole");
     var sortState = { field: null, dir: "asc" };
@@ -267,6 +314,59 @@
       App.showToast(id ? "User updated" : "User added");
       closeModal();
       render();
+    });
+
+    /* Quick "+ New Role" flow from inside Add/Edit User — lets an admin define a custom
+       role's permissions without leaving the user form, then selects it right away so the
+       user being created/edited gets it immediately. */
+    var permActions = ["create", "read", "update", "delete"];
+    function renderNewRolePermRows() {
+      document.getElementById("nrPermRows").innerHTML = Data.PERMISSION_MODULES.map(function (m) {
+        return '<div class="perm-row">' +
+          '<div class="perm-module-name">' + m.label + '</div>' +
+          permActions.map(function (a) {
+            return '<div class="perm-switch-cell"><label class="perm-switch">' +
+              '<input type="checkbox" data-mod="' + m.key + '" data-action="' + a + '">' +
+              '<span class="slider"></span></label></div>';
+          }).join("") +
+        '</div>';
+      }).join("");
+    }
+
+    var newRoleModal = document.getElementById("newRoleModal");
+    var newRoleLink = document.getElementById("newRoleLink");
+    if (newRoleLink) newRoleLink.addEventListener("click", function () {
+      document.getElementById("newRoleForm").reset();
+      renderNewRolePermRows();
+      newRoleModal.classList.add("show");
+    });
+    document.getElementById("closeNewRoleModal").addEventListener("click", function () { newRoleModal.classList.remove("show"); });
+    document.getElementById("cancelNewRoleModal").addEventListener("click", function () { newRoleModal.classList.remove("show"); });
+    newRoleModal.addEventListener("click", function (e) { if (e.target === newRoleModal) newRoleModal.classList.remove("show"); });
+
+    document.getElementById("saveNewRoleBtn").addEventListener("click", function () {
+      var name = document.getElementById("nrName").value.trim();
+      if (!name) { App.showToast("Role name is required", true); return; }
+
+      var permissions = {};
+      Data.PERMISSION_MODULES.forEach(function (m) { permissions[m.key] = { create: false, read: false, update: false, delete: false }; });
+      document.querySelectorAll("#nrPermRows input[type=checkbox]").forEach(function (cb) {
+        permissions[cb.getAttribute("data-mod")][cb.getAttribute("data-action")] = cb.checked;
+      });
+
+      var record = {
+        id: Data.uid("role"),
+        name: name,
+        description: document.getElementById("nrDesc").value.trim(),
+        allProjects: document.querySelector('input[name="nrAllProjects"]:checked').value === "true",
+        isSystem: false,
+        permissions: permissions
+      };
+      Data.saveRoles(Data.getRoles().concat([record]));
+      refreshRoleOptions();
+      roleSelect.value = record.id;
+      App.showToast("Role \"" + name + "\" created");
+      newRoleModal.classList.remove("show");
     });
 
     render();

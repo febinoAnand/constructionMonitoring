@@ -86,7 +86,9 @@
     container.innerHTML = '<div class="donut-wrap">' + svg + legend + '</div>';
   }
 
-  /* Single-value ring, e.g. project % complete. */
+  /* Single-value ring, e.g. project % complete. Pass opts.fontSize (+ optionally omit the
+     label entirely with opts.hideLabel) to scale the center text down for small/mini rings —
+     the default 22px (set in CSS) only suits the full-size ring. */
   function renderProgressRing(container, percent, opts) {
     opts = opts || {};
     var size = opts.size || 96;
@@ -97,13 +99,15 @@
     var dash = (clamped / 100) * circumference;
     var color = opts.color || (clamped >= 80 ? "#16a34a" : clamped >= 40 ? "#f59e0b" : "#ea580c");
     var cx = size / 2, cy = size / 2;
+    var fontSize = opts.fontSize || 22;
 
     var svg = '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '">' +
       '<circle cx="' + cx + '" cy="' + cy + '" r="' + radius + '" fill="none" stroke="var(--border)" stroke-width="' + stroke + '"></circle>' +
       '<circle cx="' + cx + '" cy="' + cy + '" r="' + radius + '" fill="none" stroke="' + color + '" stroke-width="' + stroke + '" ' +
         'stroke-dasharray="' + dash + ' ' + (circumference - dash) + '" stroke-linecap="round" ' +
         'transform="rotate(-90 ' + cx + ' ' + cy + ')"></circle>' +
-      '<text x="' + cx + '" y="' + (cy + 6) + '" text-anchor="middle" class="progress-ring-value">' + Math.round(clamped) + '%</text>' +
+      (opts.hideLabel ? '' :
+        '<text x="' + cx + '" y="' + (cy + fontSize * 0.32) + '" text-anchor="middle" class="progress-ring-value" style="font-size:' + fontSize + 'px">' + Math.round(clamped) + '%</text>') +
       '</svg>';
 
     container.innerHTML = svg;

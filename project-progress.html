@@ -115,6 +115,15 @@
       (canDelete ? '<th></th>' : '');
     App.wireSort(document.getElementById("histHeadRow"), histSortState, function () { histPage = 1; renderAll(); });
 
+    function getFilteredUpdates(from, to) {
+      return Data.getProgressUpdates().filter(function (p) {
+        if (p.projectId !== projectId) return false;
+        if (from && p.date < from) return false;
+        if (to && p.date > to) return false;
+        return true;
+      });
+    }
+
     function renderAll() {
       var est = Business.estimateCompletion(project);
       var ringHost = document.createElement("div");
@@ -127,8 +136,7 @@
           (est.atRisk ? '<span class="badge badge-danger" style="margin-top:6px">Projected to miss target</span>' : (est.hasData ? '<span class="badge badge-success" style="margin-top:6px">On track for target</span>' : '')) +
         '</div>';
 
-      var updates = Data.getProgressUpdates().filter(function (p) { return p.projectId === projectId; })
-        .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+      var updates = getFilteredUpdates().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
 
       Charts.renderBarChart(document.getElementById("progChart"), updates.map(function (u) {
         return { label: Data.displayDate(u.date).slice(0, 6), value: u.percentComplete };
@@ -198,9 +206,19 @@
     document.getElementById("cancelDownloadModal").addEventListener("click", function () { downloadModal.classList.remove("show"); });
     downloadModal.addEventListener("click", function (e) { if (e.target === downloadModal) downloadModal.classList.remove("show"); });
     document.getElementById("confirmDownloadBtn").addEventListener("click", function () {
-      var format = document.getElementById("dlFormat").value.toUpperCase();
+      var format = document.getElementById("dlFormat").value;
+      var from = document.getElementById("dlFrom").value;
+      var to = document.getElementById("dlTo").value;
+      var rows = App.sortRows(getFilteredUpdates(from, to), histSortState.field ? histSortState : { field: "date", dir: "desc" });
+      var rangeText = (from || to) ? " (" + (from ? Data.displayDate(from) : "start") + " to " + (to ? Data.displayDate(to) : "today") + ")" : "";
+      App.exportTable(format, project.code + "-progress", "Progress Updates — " + project.name + rangeText, project.code + rangeText,
+        [
+          { label: "Date", value: function (u) { return Data.displayDate(u.date); } },
+          { label: "% Complete", value: function (u) { return u.percentComplete + "%"; } },
+          { label: "Notes", value: function (u) { return u.notes || "—"; } }
+        ], rows);
       downloadModal.classList.remove("show");
-      App.showToast("Your " + format + " file is downloading...");
+      App.showToast("Your " + format.toUpperCase() + " file is downloading...");
     });
 
     renderAll();

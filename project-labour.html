@@ -192,23 +192,29 @@
       Charts.renderBarChart(document.getElementById("labourWorkChart"), chartItems, { formatValue: function (v) { return v + " days"; } });
     }
 
-    function renderAttendance() {
-      var all = Data.getAttendance().filter(function (a) {
+    function getFilteredAttendance(from, to) {
+      return Data.getAttendance().filter(function (a) {
         if (a.projectId !== projectId) return false;
-        if (attFrom && a.date < attFrom) return false;
-        if (attTo && a.date > attTo) return false;
+        if (from && a.date < from) return false;
+        if (to && a.date > to) return false;
         return true;
       });
+    }
+
+    function attSortAccessor(a, field) {
+      if (field === "labourerName") { var lb = Data.getLabourers().find(function (l) { return l.id === a.labourerId; }); return lb ? lb.name : ""; }
+      if (field === "amount") return a.daysWorked * a.wageRate;
+      return a[field];
+    }
+
+    function renderAttendance() {
+      var all = getFilteredAttendance(attFrom, attTo);
       document.getElementById("attCount").textContent = all.length + " entries";
 
       all = App.sortRows(
         all,
         attSortState.field ? attSortState : { field: "date", dir: "desc" },
-        function (a, field) {
-          if (field === "labourerName") { var lb = Data.getLabourers().find(function (l) { return l.id === a.labourerId; }); return lb ? lb.name : ""; }
-          if (field === "amount") return a.daysWorked * a.wageRate;
-          return a[field];
-        }
+        attSortAccessor
       );
 
       var pg = App.paginate(all, attPage, PAGE_SIZE);
@@ -334,9 +340,20 @@
     document.getElementById("cancelAttDownloadModal").addEventListener("click", closeAttDownloadModal);
     attDownloadModal.addEventListener("click", function (e) { if (e.target === attDownloadModal) closeAttDownloadModal(); });
     document.getElementById("confirmAttDownloadBtn").addEventListener("click", function () {
-      var format = document.getElementById("adlFormat").value.toUpperCase();
+      var format = document.getElementById("adlFormat").value;
+      var adlFrom = document.getElementById("adlFrom").value;
+      var adlTo = document.getElementById("adlTo").value;
+      var rows = App.sortRows(getFilteredAttendance(adlFrom, adlTo), attSortState.field ? attSortState : { field: "date", dir: "desc" }, attSortAccessor);
+      var rangeText = (adlFrom || adlTo) ? " (" + (adlFrom ? Data.displayDate(adlFrom) : "start") + " to " + (adlTo ? Data.displayDate(adlTo) : "today") + ")" : "";
+      App.exportTable(format, project.code + "-attendance", "Attendance History — " + project.name + rangeText, project.code + rangeText,
+        [
+          { label: "Date", value: function (a) { return Data.displayDate(a.date); } },
+          { label: "Labourer", value: function (a) { var lab = Data.getLabourers().find(function (l) { return l.id === a.labourerId; }); return lab ? lab.name : "—"; } },
+          { label: "Days", key: "daysWorked" },
+          { label: "Amount", value: function (a) { return "₹" + Math.round(a.daysWorked * a.wageRate); } }
+        ], rows);
       closeAttDownloadModal();
-      App.showToast("Your " + format + " file is downloading...");
+      App.showToast("Your " + format.toUpperCase() + " file is downloading...");
     });
 
     renderAll();
